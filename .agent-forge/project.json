@@ -1,0 +1,44 @@
+{
+  "project_name": "itom-orchestrator",
+  "repo_url": "https://github.com/amragl/itom-orchestrator.git",
+  "repo_owner": "amragl",
+  "repo_name": "itom-orchestrator",
+  "repo_path": "/Users/amragl/Python Projects/itom-orchestrator",
+  "branch_strategy": {
+    "main": "main",
+    "develop": "main",
+    "feature_prefix": "feature/",
+    "fix_prefix": "fix/",
+    "agent_prefix": "agent/"
+  },
+  "tech_stack": {
+    "languages": ["Python 3.11+"],
+    "frameworks": ["FastMCP", "Pydantic"],
+    "databases": [],
+    "other": ["ServiceNow REST API", "MCP Protocol"]
+  },
+  "auto_merge": {
+    "enabled": true,
+    "merge_strategy": "squash",
+    "require_human_review": false,
+    "delete_branch_after_merge": true,
+    "sync_local_after_merge": true
+  },
+  "auto_mode": {
+    "max_tickets_per_session": 10,
+    "max_hours": 8,
+    "max_consecutive_failures": 2,
+    "skip_improve_approval": true,
+    "auto_advance_tickets": true,
+    "checkpoint_interval_tickets": 1,
+    "cooldown_between_tickets_seconds": 30,
+    "safety_limits": {
+      "stop_on_critical_bug": true,
+      "stop_on_mock_detection": true,
+      "max_fix_loop_iterations": 2
+    }
+  },
+  "pipeline_steps": ["plan", "build", "validate", "test", "monitor"],
+  "initialized_at": "2026-02-12T21:45:00Z",
+  "custom_rules": []
+}
