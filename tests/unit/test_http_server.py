@@ -1,12 +1,13 @@
 """
-Tests for the FastAPI HTTP server layer (ORCH-026).
+Tests for the FastAPI HTTP server layer (ORCH-026, ORCH-028).
 
 Validates that:
 - FastAPI app is created with correct configuration
 - CORS middleware is configured with allowed origins
 - GET /api/health returns orchestrator health status
-- GET /api/agents/status returns agent summary
+- GET /api/agents/status returns agent summary with optional force_check
 - GET /api/agents/{id} returns agent details or 404
+- GET /api/agents/{id}/health returns per-agent health with optional force_check
 - HTTP endpoints bridge to the same internal logic as MCP tools
 """
 
@@ -75,6 +76,7 @@ class TestAppCreation:
         assert "/api/health" in route_paths
         assert "/api/agents/status" in route_paths
         assert "/api/agents/{agent_id}" in route_paths
+        assert "/api/agents/{agent_id}/health" in route_paths
 
 
 class TestHealthEndpoint:
@@ -166,6 +168,23 @@ class TestAgentsStatusEndpoint:
             assert "name" in agent
             assert "status" in agent
 
+    def test_agents_status_with_force_check(self, http_app: TestClient) -> None:
+        """force_check=true should trigger fresh health checks."""
+        response = http_app.get("/api/agents/status?force_check=true")
+        assert response.status_code == 200
+        data = response.json()
+        assert "agents" in data
+        # After force check, agents should have last_check populated
+        for agent in data["agents"]:
+            assert "last_check" in agent
+
+    def test_agents_status_without_force_check(self, http_app: TestClient) -> None:
+        """Default (no force_check) should return cached or current status."""
+        response = http_app.get("/api/agents/status")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["total_agents"] == 6
+
 
 class TestAgentDetailsEndpoint:
     """Tests for GET /api/agents/{agent_id}."""
@@ -213,6 +232,63 @@ class TestAgentDetailsEndpoint:
             assert response.status_code == 200, f"Failed for {agent_id}"
             data = response.json()
             assert data["agent_id"] == agent_id
+
+
+class TestAgentHealthEndpoint:
+    """Tests for GET /api/agents/{agent_id}/health."""
+
+    def test_agent_health_returns_200_for_valid_id(self, http_app: TestClient) -> None:
+        """Should return 200 for a known agent."""
+        response = http_app.get("/api/agents/cmdb-agent/health")
+        assert response.status_code == 200
+
+    def test_agent_health_returns_health_fields(self, http_app: TestClient) -> None:
+        """Response should include agent health info fields."""
+        response = http_app.get("/api/agents/cmdb-agent/health")
+        data = response.json()
+        assert "agent_id" in data
+        assert data["agent_id"] == "cmdb-agent"
+        assert "current_status" in data
+        assert "health_stats" in data
+        assert "latest_check_result" in data
+
+    def test_agent_health_with_force_check(self, http_app: TestClient) -> None:
+        """force_check=true should perform a fresh health check."""
+        response = http_app.get("/api/agents/cmdb-agent/health?force_check=true")
+        assert response.status_code == 200
+        data = response.json()
+        assert "latest_check_result" in data
+        result = data["latest_check_result"]
+        assert "result" in result
+        assert "response_time_ms" in result
+
+    def test_agent_health_returns_404_for_unknown_id(self, http_app: TestClient) -> None:
+        """Should return 404 for a non-existent agent."""
+        response = http_app.get("/api/agents/nonexistent-agent/health")
+        assert response.status_code == 404
+
+    def test_agent_health_includes_statistics(self, http_app: TestClient) -> None:
+        """Response should include health_stats with check history."""
+        response = http_app.get("/api/agents/discovery-agent/health?force_check=true")
+        data = response.json()
+        stats = data["health_stats"]
+        assert "total_checks" in stats
+        assert "uptime_percentage" in stats
+        assert "avg_response_time_ms" in stats
+
+    def test_agent_health_for_all_default_agents(self, http_app: TestClient) -> None:
+        """Health check should work for each default agent."""
+        agent_ids = [
+            "cmdb-agent",
+            "discovery-agent",
+            "asset-agent",
+            "csa-agent",
+            "itom-auditor",
+            "itom-documentator",
+        ]
+        for agent_id in agent_ids:
+            response = http_app.get(f"/api/agents/{agent_id}/health")
+            assert response.status_code == 200, f"Failed for {agent_id}"
 
 
 class TestCORSHeaders:
