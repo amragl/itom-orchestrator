@@ -87,7 +87,9 @@ def _get_router() -> Any:
         from itom_orchestrator.router import TaskRouter
 
         registry = _get_registry()
-        _router_instance = TaskRouter(registry=registry)
+        # require_available=False until agents have real health endpoints.
+        # Once MCP client connectivity is implemented, switch to True.
+        _router_instance = TaskRouter(registry=registry, require_available=False)
     return _router_instance
 
 
