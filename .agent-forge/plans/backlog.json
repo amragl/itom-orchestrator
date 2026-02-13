@@ -100,12 +100,12 @@
       "phase": "phase-1",
       "priority": "critical",
       "type": "feature",
-      "status": "planned",
+      "status": "done",
       "dependencies": ["ORCH-001"],
       "assigned_agent": "build",
       "estimated_complexity": "large",
-      "pr_number": null,
-      "completed_at": null
+      "pr_number": 29,
+      "completed_at": "2026-02-13T09:30:00Z"
     },
     {
       "id": "ORCH-004",

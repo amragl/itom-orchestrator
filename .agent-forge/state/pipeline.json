@@ -1,7 +1,7 @@
 {
   "status": "running",
   "current_phase": "phase-1",
-  "current_ticket": "ORCH-001",
+  "current_ticket": "ORCH-003",
   "current_agent": "build",
   "current_step": "build",
   "last_completed_step": null,
@@ -21,12 +21,12 @@
   },
   "step_tracking": {
     "step_order": ["plan", "build", "validate", "test", "monitor"],
-    "current_step": "plan",
+    "current_step": "build",
     "steps_completed": [],
     "steps_remaining": ["plan", "build", "validate", "test", "monitor"],
     "step_results": {
       "plan": { "status": "running", "started_at": "2026-02-13T09:00:00Z", "completed_at": null, "error": null, "error_code": null, "retry_count": 0, "last_retry_at": null },
-      "build": { "status": null, "started_at": null, "completed_at": null, "error": null, "error_code": null, "retry_count": 0, "last_retry_at": null },
+      "build": { "status": "running", "started_at": "2026-02-13T10:00:00Z", "completed_at": null, "error": null, "error_code": null, "retry_count": 0, "last_retry_at": null },
       "validate": { "status": null, "started_at": null, "completed_at": null, "error": null, "error_code": null, "retry_count": 0, "last_retry_at": null },
       "test": { "status": null, "started_at": null, "completed_at": null, "error": null, "error_code": null, "retry_count": 0, "last_retry_at": null },
       "monitor": { "status": null, "started_at": null, "completed_at": null, "error": null, "error_code": null, "retry_count": 0, "last_retry_at": null }
@@ -36,7 +36,7 @@
   "recovery_history": [],
   "agents": {
     "plan": { "status": "running", "last_run": "2026-02-13T09:00:00Z", "tickets_created": 0 },
-    "build": { "status": "idle", "last_run": null, "prs_created": 0 },
+    "build": { "status": "running", "last_run": "2026-02-13T10:00:00Z", "prs_created": 0 },
     "validate": { "status": "idle", "last_run": null, "issues_found": 0 },
     "test": { "status": "idle", "last_run": null, "tests_run": 0, "failures": 0 },
     "monitor": { "status": "idle", "last_run": null, "alerts": 0 },
