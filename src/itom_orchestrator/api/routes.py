@@ -10,16 +10,19 @@ Endpoints:
 - GET  /api/agents/status           -- summary health for all agents
 - GET  /api/agents/{id}             -- detailed info for a specific agent
 - GET  /api/agents/{id}/health      -- health check for a specific agent
+- POST /api/chat                    -- route chat messages to agents
 
-This module implements ORCH-028: GET /api/health and GET /api/agents/status
-endpoints for chat-ui connection monitoring.
+This module implements ORCH-026, ORCH-027, and ORCH-028.
 """
 
 import logging
+from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query
+from pydantic import ValidationError
 
+from itom_orchestrator.api.chat import ChatRequest, ChatResponse, process_chat_message
 from itom_orchestrator.logging_config import get_structured_logger
 
 logger: logging.LoggerAdapter[Any] = get_structured_logger(__name__)
@@ -193,3 +196,97 @@ async def get_agent_health(
         },
     )
     return health_info
+
+
+@router.post("/chat", response_model=ChatResponse)
+async def post_chat(request: ChatRequest) -> ChatResponse:
+    """Route a chat message to the appropriate ITOM agent.
+
+    Receives a message from itom-chat-ui, routes it to the best agent
+    based on domain hints, keywords, or explicit targeting, and returns
+    the agent's response.
+
+    Error responses:
+    - 400: Invalid request (empty message, invalid domain)
+    - 502: Agent routing or execution failure
+    - 504: Agent execution timed out
+
+    Args:
+        request: Chat message with optional routing hints.
+
+    Returns:
+        ChatResponse with the agent's response and routing metadata.
+    """
+    from itom_orchestrator.executor import ExecutionError, TaskTimeoutError
+    from itom_orchestrator.router import RoutingError
+    from itom_orchestrator.server import _get_executor, _get_router
+
+    executor = _get_executor()
+    task_router = _get_router()
+
+    try:
+        response = process_chat_message(
+            request=request,
+            router=task_router,
+            executor=executor,
+        )
+        return response
+
+    except ValueError as exc:
+        # Invalid domain or request validation error -> 400
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    except RoutingError as exc:
+        # No agent found or agent unavailable -> 502
+        logger.warning(
+            "Chat routing failed",
+            extra={
+                "extra_data": {
+                    "error_code": exc.error_code,
+                    "message": exc.message,
+                }
+            },
+        )
+        raise HTTPException(
+            status_code=502,
+            detail={
+                "error_code": exc.error_code,
+                "error_message": exc.message,
+                "timestamp": datetime.now(UTC).isoformat(),
+            },
+        ) from exc
+
+    except TaskTimeoutError as exc:
+        # Agent timed out -> 504
+        logger.warning(
+            "Chat execution timed out",
+            extra={"extra_data": {"task_id": exc.task_id}},
+        )
+        raise HTTPException(
+            status_code=504,
+            detail={
+                "error_code": exc.error_code,
+                "error_message": exc.message,
+                "timestamp": datetime.now(UTC).isoformat(),
+            },
+        ) from exc
+
+    except ExecutionError as exc:
+        # Other execution failures -> 502
+        logger.warning(
+            "Chat execution failed",
+            extra={
+                "extra_data": {
+                    "error_code": exc.error_code,
+                    "task_id": exc.task_id,
+                }
+            },
+        )
+        raise HTTPException(
+            status_code=502,
+            detail={
+                "error_code": exc.error_code,
+                "error_message": exc.message,
+                "timestamp": datetime.now(UTC).isoformat(),
+            },
+        ) from exc
