@@ -113,12 +113,38 @@ def _extract_name_hint(message: str, ci_type: str | None) -> str | None:
     return hint if hint else None
 
 
+def _format_dict_value(v: Any) -> str:
+    """Format a value for display, handling nested dicts and lists."""
+    if isinstance(v, dict):
+        parts = [f"{k}: {v2}" for k, v2 in v.items()]
+        return ", ".join(parts)
+    if isinstance(v, list):
+        if len(v) <= 5:
+            return ", ".join(str(x) for x in v)
+        return f"{len(v)} items"
+    if isinstance(v, float):
+        return f"{v:.1f}"
+    return str(v)
+
+
 def _format_cmdb_response(tool_name: str, raw_text: str) -> str:
     """Format raw CMDB tool JSON into a human-readable chat response."""
     try:
         data = json.loads(raw_text)
     except (json.JSONDecodeError, TypeError):
         return raw_text
+
+    if tool_name == "_count_only":
+        # Count-only mode: just show the total from a search result
+        if isinstance(data, dict):
+            total = data.get("total_count", data.get("total", 0))
+            ci_types = data.get("ci_types_searched", [])
+            ci_label = ci_types[0] if ci_types else "configuration items"
+            ci_label = ci_label.replace("cmdb_ci_", "").replace("_", " ") + "s"
+        else:
+            total = 0
+            ci_label = "configuration items"
+        return f"**{total}** {ci_label} found in the CMDB."
 
     if tool_name == "check_server_health":
         status = data.get("status", "unknown")
@@ -162,9 +188,7 @@ def _format_cmdb_response(tool_name: str, raw_text: str) -> str:
                 if isinstance(values, dict):
                     for k, v in values.items():
                         label = k.replace("_", " ").title()
-                        if isinstance(v, float):
-                            v = f"{v:.1f}"
-                        lines.append(f"  {label}: {v}")
+                        lines.append(f"  {label}: {_format_dict_value(v)}")
                 elif isinstance(values, list):
                     for item in values[:5]:
                         lines.append(f"  - {item}")
@@ -336,7 +360,10 @@ def _make_cmdb_handler(server_url: str) -> Any:
             tool_name = "get_configuration_item_details"
             arguments = {"identifier": message}
         elif any(kw in message_lower for kw in ["count", "how many"]):
-            tool_name = "get_operational_dashboard"
+            tool_name = "search_configuration_items"
+            ci_type = _infer_ci_type(message_lower)
+            arguments = {"ci_type": ci_type, "limit": 1}
+            arguments["_count_only"] = True
         elif any(kw in message_lower for kw in ["health", "status"]):
             tool_name = "check_server_health"
 
@@ -348,6 +375,9 @@ def _make_cmdb_handler(server_url: str) -> Any:
             name_hint = _extract_name_hint(message, ci_type)
             if name_hint:
                 arguments["name"] = f"*{name_hint}*"
+
+        # Extract internal flags before sending to MCP
+        count_only = arguments.pop("_count_only", False)
 
         logger.info(
             "CMDB dispatch: routing to tool",
@@ -380,7 +410,10 @@ def _make_cmdb_handler(server_url: str) -> Any:
                     texts.append(str(item))
 
             raw_response = "\n".join(texts)
-            formatted = _format_cmdb_response(tool_name, raw_response)
+            if count_only:
+                formatted = _format_cmdb_response("_count_only", raw_response)
+            else:
+                formatted = _format_cmdb_response(tool_name, raw_response)
 
             return {
                 "agent_response": formatted,
