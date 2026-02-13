@@ -196,7 +196,12 @@ def _build_default_routing_rules() -> list[RoutingRule]:
             name="cmdb-domain",
             priority=10,
             domain=AgentDomain.CMDB,
-            keywords=["cmdb", "configuration item", "ci ", "relationship"],
+            keywords=[
+                "cmdb", "configuration item", "ci ", "relationship",
+                "server", "database", "application", "network",
+                "infrastructure", "duplicate", "stale", "health",
+                "dashboard", "metrics", "operational",
+            ],
         ),
         RoutingRule(
             name="discovery-domain",
@@ -227,6 +232,14 @@ def _build_default_routing_rules() -> list[RoutingRule]:
             priority=10,
             domain=AgentDomain.DOCUMENTATION,
             keywords=["document", "runbook", "knowledge base", "architecture diagram"],
+        ),
+        # Fallback: route generic search/query messages to CMDB as the
+        # default data-lookup agent in the ITOM suite.
+        RoutingRule(
+            name="cmdb-search-fallback",
+            priority=50,
+            domain=AgentDomain.CMDB,
+            keywords=["search", "find", "look up", "query", "show me", "list", "count", "how many"],
         ),
     ]
 

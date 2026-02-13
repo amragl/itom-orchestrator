@@ -54,6 +54,12 @@ class OrchestratorConfig(BaseSettings):
         description="Allowed CORS origins for the HTTP API.",
     )
 
+    # Agent endpoint URLs (set via ORCH_CMDB_AGENT_URL, etc.)
+    cmdb_agent_url: str | None = Field(
+        default=None,
+        description="URL of the CMDB MCP server (e.g. http://localhost:8002/mcp).",
+    )
+
     @computed_field  # type: ignore[prop-decorator]
     @property
     def state_dir(self) -> str:

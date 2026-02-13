@@ -97,7 +97,8 @@ def _get_executor() -> Any:
     """Get or create the TaskExecutor singleton.
 
     Uses lazy initialization. The executor is created on first access,
-    using the router and persistence singletons.
+    using the router and persistence singletons. Also registers any
+    configured agent dispatch handlers on first creation.
     """
     global _executor_instance
     if _executor_instance is None:
@@ -107,6 +108,11 @@ def _get_executor() -> Any:
         router = _get_router()
         persistence = get_persistence()
         _executor_instance = TaskExecutor(router=router, persistence=persistence)
+
+        # Register dispatch handlers for configured agent endpoints
+        from itom_orchestrator.agent_dispatch import register_all_handlers
+
+        register_all_handlers()
     return _executor_instance
 
 
