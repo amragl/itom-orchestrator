@@ -55,6 +55,7 @@ def _reset_global_singletons() -> Generator[None, None, None]:
     This prevents one test's state from leaking into another.
     """
     import itom_orchestrator.config as config_mod
+    import itom_orchestrator.http_server as http_server_mod
     import itom_orchestrator.persistence as persistence_mod
     import itom_orchestrator.server as server_mod
 
@@ -62,6 +63,8 @@ def _reset_global_singletons() -> Generator[None, None, None]:
     persistence_mod._persistence = None
     server_mod._registry_instance = None
     server_mod._health_checker_instance = None
+    http_server_mod._registry_instance = None
+    http_server_mod._health_checker_instance = None
 
     yield
 
@@ -69,3 +72,5 @@ def _reset_global_singletons() -> Generator[None, None, None]:
     persistence_mod._persistence = None
     server_mod._registry_instance = None
     server_mod._health_checker_instance = None
+    http_server_mod._registry_instance = None
+    http_server_mod._health_checker_instance = None
