@@ -1,13 +1,13 @@
 {
   "project": "itom-orchestrator",
   "vision": "Central coordinator for all ITOM agents -- routes tasks, manages multi-agent workflows, enforces role boundaries, and maintains execution state across the ServiceNow ITOM automation suite",
-  "updated_at": "2026-02-12T12:40:00Z",
+  "updated_at": "2026-02-13T20:00:00Z",
   "phases": [
     {
       "id": "phase-1",
       "name": "Foundation",
       "description": "Project structure, configuration, MCP server skeleton, core models, and state persistence. Establishes the foundational infrastructure all subsequent phases build upon.",
-      "status": "active",
+      "status": "completed",
       "order": 1,
       "milestones": [
         {
@@ -15,25 +15,25 @@
           "name": "Project scaffold and MCP server operational",
           "description": "Python package installs cleanly, MCP server starts, health endpoint responds, all core models defined, state persistence operational",
           "target_date": null,
-          "completed_date": null,
-          "status": "in-progress"
+          "completed_date": "2026-02-13T09:45:00Z",
+          "status": "done"
         }
       ],
       "progress": {
         "total_tickets": 4,
-        "completed": 0,
+        "completed": 4,
         "in_progress": 0,
         "bugs_found": 0,
         "bugs_fixed": 0,
         "improvements_proposed": 0,
-        "percentage": 0
+        "percentage": 100
       }
     },
     {
       "id": "phase-2",
       "name": "Agent Registry",
       "description": "Agent registration, capability declaration, health checking, and dynamic configuration. The orchestrator learns what agents exist and what they can do.",
-      "status": "planned",
+      "status": "completed",
       "order": 2,
       "milestones": [
         {
@@ -41,26 +41,52 @@
           "name": "Agent registry with health monitoring",
           "description": "All 6 ITOM agents registered with capabilities, health checks functional, get_agent_registry and get_agent_status MCP tools operational",
           "target_date": null,
-          "completed_date": null,
-          "status": "todo"
+          "completed_date": "2026-02-13T15:45:00Z",
+          "status": "done"
         }
       ],
       "progress": {
         "total_tickets": 3,
-        "completed": 0,
+        "completed": 3,
         "in_progress": 0,
         "bugs_found": 0,
         "bugs_fixed": 0,
         "improvements_proposed": 0,
-        "percentage": 0
+        "percentage": 100
+      }
+    },
+    {
+      "id": "phase-2b",
+      "name": "HTTP API Layer",
+      "description": "Add FastAPI HTTP server alongside FastMCP so itom-chat-ui can communicate with the orchestrator via REST endpoints. Critical for unblocking chat-ui integration testing.",
+      "status": "completed",
+      "order": 3,
+      "milestones": [
+        {
+          "id": "M-2b",
+          "name": "FastAPI HTTP server with chat and health endpoints",
+          "description": "FastAPI server running on port 8000 with /api/health, /api/chat, and /api/agents/status endpoints serving requests from chat-ui",
+          "target_date": null,
+          "completed_date": "2026-02-13T19:50:00Z",
+          "status": "done"
+        }
+      ],
+      "progress": {
+        "total_tickets": 3,
+        "completed": 3,
+        "in_progress": 0,
+        "bugs_found": 0,
+        "bugs_fixed": 0,
+        "improvements_proposed": 0,
+        "percentage": 100
       }
     },
     {
       "id": "phase-3",
       "name": "Task Routing",
       "description": "Domain-based routing engine, task execution with timeout/retry, and configurable routing rules. The orchestrator can receive tasks and dispatch them to the right agent.",
-      "status": "planned",
-      "order": 3,
+      "status": "active",
+      "order": 4,
       "milestones": [
         {
           "id": "M-3",
@@ -68,17 +94,17 @@
           "description": "route_task MCP tool correctly routes tasks by domain, task execution handles timeouts and retries, routing rules configurable via JSON",
           "target_date": null,
           "completed_date": null,
-          "status": "todo"
+          "status": "in-progress"
         }
       ],
       "progress": {
         "total_tickets": 3,
-        "completed": 0,
+        "completed": 2,
         "in_progress": 0,
         "bugs_found": 0,
         "bugs_fixed": 0,
         "improvements_proposed": 0,
-        "percentage": 0
+        "percentage": 67
       }
     },
     {
@@ -86,7 +112,7 @@
       "name": "Workflow Engine",
       "description": "Multi-agent workflow definitions, state machine execution engine, checkpoint/resume, and pre-built workflow templates. The orchestrator can coordinate complex multi-agent operations.",
       "status": "planned",
-      "order": 4,
+      "order": 5,
       "milestones": [
         {
           "id": "M-4",
@@ -112,7 +138,7 @@
       "name": "Cross-Agent Communication",
       "description": "Inter-agent message passing, event bus for lifecycle events, and agent notification/callback system. Agents can communicate through the orchestrator.",
       "status": "planned",
-      "order": 5,
+      "order": 6,
       "milestones": [
         {
           "id": "M-5",
@@ -138,7 +164,7 @@
       "name": "Role Enforcement",
       "description": "Role boundary definitions, policy enforcement engine, audit trail, and per-agent boundary configurations. The orchestrator ensures agents only operate within their designated domains.",
       "status": "planned",
-      "order": 6,
+      "order": 7,
       "milestones": [
         {
           "id": "M-6",
@@ -164,7 +190,7 @@
       "name": "Testing and Documentation",
       "description": "Comprehensive unit tests, integration tests, MCP tool validation, and error handling hardening. Production-quality test coverage and robust error paths.",
       "status": "planned",
-      "order": 7,
+      "order": 8,
       "milestones": [
         {
           "id": "M-7",
@@ -187,13 +213,13 @@
     }
   ],
   "summary": {
-    "total_phases": 7,
-    "completed_phases": 0,
+    "total_phases": 8,
+    "completed_phases": 3,
     "total_tickets": 25,
-    "completed_tickets": 0,
+    "completed_tickets": 12,
     "total_bugs": 0,
     "open_bugs": 0,
-    "overall_percentage": 0,
-    "velocity_tickets_per_week": 0
+    "overall_percentage": 48,
+    "velocity_tickets_per_week": 12
   }
 }

@@ -1,6 +1,6 @@
 {
   "project": "itom-orchestrator",
-  "updated_at": "2026-02-13T09:10:00Z",
+  "updated_at": "2026-02-13T20:00:00Z",
   "phases": [
     {
       "id": "phase-1",
@@ -15,15 +15,23 @@
       "name": "Agent Registry",
       "description": "Agent registration, capability declaration, health checking, and dynamic configuration. The orchestrator learns what agents exist and what they can do.",
       "milestone": "All 6 ITOM agents registered with capabilities, health checks functional, get_agent_registry and get_agent_status MCP tools operational",
-      "status": "active",
+      "status": "completed",
       "tickets": ["ORCH-005", "ORCH-006", "ORCH-007"]
+    },
+    {
+      "id": "phase-2b",
+      "name": "HTTP API Layer",
+      "description": "Add FastAPI HTTP server alongside FastMCP so itom-chat-ui can communicate with the orchestrator via REST endpoints. Critical for unblocking chat-ui integration testing.",
+      "milestone": "FastAPI server running on port 8000 with /api/health, /api/chat, and /api/agents/status endpoints serving requests from chat-ui",
+      "status": "completed",
+      "tickets": ["ORCH-026", "ORCH-027", "ORCH-028"]
     },
     {
       "id": "phase-3",
       "name": "Task Routing",
       "description": "Domain-based routing engine, task execution with timeout/retry, and configurable routing rules. The orchestrator can receive tasks and dispatch them to the right agent.",
       "milestone": "route_task MCP tool correctly routes tasks by domain, task execution handles timeouts and retries, routing rules configurable via JSON",
-      "status": "planned",
+      "status": "active",
       "tickets": ["ORCH-008", "ORCH-009", "ORCH-010"]
     },
     {
@@ -73,9 +81,7 @@
       "assigned_agent": "build",
       "estimated_complexity": "medium",
       "pr_number": 27,
-      "completed_at": "2026-02-13T09:10:00Z",
-      "pr_number": null,
-      "completed_at": null
+      "completed_at": "2026-02-13T09:10:00Z"
     },
     {
       "id": "ORCH-002",
@@ -130,12 +136,12 @@
       "phase": "phase-2",
       "priority": "critical",
       "type": "feature",
-      "status": "planned",
+      "status": "done",
       "dependencies": ["ORCH-003", "ORCH-004"],
       "assigned_agent": "build",
       "estimated_complexity": "large",
-      "pr_number": null,
-      "completed_at": null
+      "pr_number": 31,
+      "completed_at": "2026-02-13T15:10:00Z"
     },
     {
       "id": "ORCH-006",
@@ -145,12 +151,12 @@
       "phase": "phase-2",
       "priority": "high",
       "type": "feature",
-      "status": "planned",
+      "status": "done",
       "dependencies": ["ORCH-005"],
       "assigned_agent": "build",
       "estimated_complexity": "medium",
-      "pr_number": null,
-      "completed_at": null
+      "pr_number": 32,
+      "completed_at": "2026-02-13T15:25:00Z"
     },
     {
       "id": "ORCH-007",
@@ -160,12 +166,57 @@
       "phase": "phase-2",
       "priority": "medium",
       "type": "feature",
-      "status": "planned",
+      "status": "done",
       "dependencies": ["ORCH-005"],
       "assigned_agent": "build",
       "estimated_complexity": "medium",
-      "pr_number": null,
-      "completed_at": null
+      "pr_number": 33,
+      "completed_at": "2026-02-13T15:40:00Z"
+    },
+    {
+      "id": "ORCH-026",
+      "github_issue": 34,
+      "title": "Add FastAPI HTTP server layer alongside FastMCP",
+      "description": "Add FastAPI app with CORS config that runs alongside the MCP server. Dual-serve: MCP over stdio AND HTTP on configurable port (default 8000). Entry point: itom-orchestrator --http. Reuse existing internal logic.",
+      "phase": "phase-2b",
+      "priority": "critical",
+      "type": "feature",
+      "status": "done",
+      "dependencies": ["ORCH-002"],
+      "assigned_agent": "build",
+      "estimated_complexity": "medium",
+      "pr_number": 37,
+      "completed_at": "2026-02-13T19:30:00Z"
+    },
+    {
+      "id": "ORCH-027",
+      "github_issue": 35,
+      "title": "Implement POST /api/chat endpoint for message routing",
+      "description": "HTTP endpoint that receives chat messages from itom-chat-ui, routes to the appropriate agent via task router or explicit targeting, returns agent response. Supports SSE streaming. Error responses: 400/502/504.",
+      "phase": "phase-2b",
+      "priority": "critical",
+      "type": "feature",
+      "status": "done",
+      "dependencies": ["ORCH-026", "ORCH-008"],
+      "assigned_agent": "build",
+      "estimated_complexity": "large",
+      "pr_number": 41,
+      "completed_at": "2026-02-13T19:50:00Z"
+    },
+    {
+      "id": "ORCH-028",
+      "github_issue": 36,
+      "title": "Implement GET /api/health and GET /api/agents/status endpoints",
+      "description": "HTTP health and agent status endpoints for chat-ui connection monitoring. Bridge to existing MCP tools: get_orchestrator_health and get_agent_registry. Health endpoint unauthenticated.",
+      "phase": "phase-2b",
+      "priority": "high",
+      "type": "feature",
+      "status": "done",
+      "dependencies": ["ORCH-026"],
+      "assigned_agent": "build",
+      "estimated_complexity": "small",
+      "pr_number": 38,
+      "completed_at": "2026-02-13T19:35:00Z"
     },
     {
       "id": "ORCH-008",
@@ -175,12 +226,12 @@
       "phase": "phase-3",
       "priority": "critical",
       "type": "feature",
-      "status": "planned",
+      "status": "done",
       "dependencies": ["ORCH-005", "ORCH-006"],
       "assigned_agent": "build",
       "estimated_complexity": "large",
-      "pr_number": null,
-      "completed_at": null
+      "pr_number": 39,
+      "completed_at": "2026-02-13T19:40:00Z"
     },
     {
       "id": "ORCH-009",
@@ -190,12 +241,12 @@
       "phase": "phase-3",
       "priority": "high",
       "type": "feature",
-      "status": "planned",
+      "status": "done",
       "dependencies": ["ORCH-008"],
       "assigned_agent": "build",
       "estimated_complexity": "large",
-      "pr_number": null,
-      "completed_at": null
+      "pr_number": 40,
+      "completed_at": "2026-02-13T19:45:00Z"
     },
     {
       "id": "ORCH-010",
