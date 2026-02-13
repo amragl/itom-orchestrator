@@ -12,6 +12,7 @@ Usage:
 """
 
 import asyncio
+import json
 import logging
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
@@ -112,6 +113,182 @@ def _extract_name_hint(message: str, ci_type: str | None) -> str | None:
     return hint if hint else None
 
 
+def _format_cmdb_response(tool_name: str, raw_text: str) -> str:
+    """Format raw CMDB tool JSON into a human-readable chat response."""
+    try:
+        data = json.loads(raw_text)
+    except (json.JSONDecodeError, TypeError):
+        return raw_text
+
+    if tool_name == "check_server_health":
+        status = data.get("status", "unknown")
+        uptime = data.get("uptime", {}).get("formatted", "unknown")
+        lines = [f"**CMDB Health: {status.upper()}**", f"Uptime: {uptime}", ""]
+        for name, check in data.get("checks", {}).items():
+            check_status = check.get("status", "unknown")
+            icon = "OK" if check_status == "healthy" else "WARN"
+            lines.append(f"  [{icon}] **{name}**")
+            if name == "servicenow":
+                lines.append(f"       Instance: {check.get('instance', 'N/A')}")
+                lines.append(f"       Latency: {check.get('latency_ms', 'N/A')}ms")
+                lines.append(f"       Auth: {'valid' if check.get('auth_valid') else 'invalid'}")
+            elif name == "cache":
+                lines.append(f"       Hit rate: {check.get('hit_rate', 0)}% ({check.get('hits', 0)} hits / {check.get('misses', 0)} misses)")
+                lines.append(f"       Size: {check.get('size', 0)} entries, TTL: {check.get('ttl_seconds', 0)}s")
+            elif name == "session_pool":
+                lines.append(f"       Connections: {check.get('pool_connections', 'N/A')}, Max: {check.get('pool_maxsize', 'N/A')}")
+        return "\n".join(lines)
+
+    if tool_name == "get_operational_dashboard":
+        lines = ["**CMDB Operational Dashboard**", ""]
+        instance_info = data.get("instance", {})
+        uptime_info = data.get("uptime", {})
+        if isinstance(instance_info, dict):
+            lines.append(f"Instance: {instance_info.get('instance_url', 'N/A')}")
+        else:
+            lines.append(f"Instance: {instance_info}")
+        if isinstance(uptime_info, dict):
+            lines.append(f"Uptime: {uptime_info.get('formatted', 'N/A')}")
+        else:
+            lines.append(f"Uptime: {uptime_info}")
+        lines.append("")
+        # Show key sections, skip internal metadata
+        skip_keys = {"timestamp", "instance", "uptime", "generation_time_ms", "tracing"}
+        if isinstance(data, dict):
+            for section, values in data.items():
+                if section in skip_keys:
+                    continue
+                lines.append(f"**{section.replace('_', ' ').title()}**")
+                if isinstance(values, dict):
+                    for k, v in values.items():
+                        label = k.replace("_", " ").title()
+                        if isinstance(v, float):
+                            v = f"{v:.1f}"
+                        lines.append(f"  {label}: {v}")
+                elif isinstance(values, list):
+                    for item in values[:5]:
+                        lines.append(f"  - {item}")
+                else:
+                    lines.append(f"  {values}")
+                lines.append("")
+        return "\n".join(lines)
+
+    if tool_name == "get_audit_summary":
+        lines = ["**CMDB Audit Summary**", ""]
+        if isinstance(data, dict):
+            for k, v in data.items():
+                if isinstance(v, dict):
+                    lines.append(f"**{k.replace('_', ' ').title()}**")
+                    for sk, sv in v.items():
+                        lines.append(f"  {sk.replace('_', ' ').title()}: {sv}")
+                    lines.append("")
+                else:
+                    lines.append(f"  {k.replace('_', ' ').title()}: {v}")
+        return "\n".join(lines)
+
+    if tool_name == "search_configuration_items":
+        if isinstance(data, dict):
+            results = data.get("result", data.get("results", data.get("items", [])))
+            total = data.get("total_count", data.get("total", data.get("count", len(results))))
+        elif isinstance(data, list):
+            results = data
+            total = len(results)
+        else:
+            return raw_text
+
+        lines = [f"**Found {total} configuration item(s)**", ""]
+        for i, ci in enumerate(results[:15], 1):
+            if isinstance(ci, dict):
+                name = ci.get("name", ci.get("display_name", "Unnamed"))
+                ci_class = ci.get("sys_class_name", ci.get("ci_type", ""))
+                op_status = ci.get("operational_status", "")
+                ip = ci.get("ip_address", "")
+                os_name = ci.get("os", "")
+                line = f"  {i}. **{name}**"
+                details = []
+                if ci_class:
+                    details.append(ci_class)
+                if os_name:
+                    details.append(os_name)
+                if op_status:
+                    details.append(f"status: {op_status}")
+                if ip:
+                    details.append(ip)
+                if details:
+                    line += f"  ({', '.join(details)})"
+                lines.append(line)
+        if isinstance(total, int) and total > 15:
+            lines.append(f"\n  ... and {total - 15} more")
+        return "\n".join(lines)
+
+    if tool_name == "find_stale_configuration_items":
+        if isinstance(data, dict):
+            results = data.get("stale_cis", data.get("result", []))
+            total = data.get("stale_count", data.get("total_count", len(results)))
+            cutoff = data.get("cutoff_date", "")
+        elif isinstance(data, list):
+            results = data
+            total = len(results)
+            cutoff = ""
+        else:
+            return raw_text
+        header = f"**Found {total} stale CI(s)**"
+        if cutoff:
+            header += f"  (not updated since {cutoff})"
+        lines = [header, ""]
+        for i, ci in enumerate(results[:10], 1):
+            if isinstance(ci, dict):
+                name = ci.get("name", "Unnamed")
+                updated = ci.get("sys_updated_on", "")
+                detail = f"  (last updated: {updated})" if updated else ""
+                lines.append(f"  {i}. {name}{detail}")
+        if isinstance(total, int) and total > 10:
+            lines.append(f"\n  ... and {total - 10} more")
+        return "\n".join(lines)
+
+    if tool_name == "find_duplicate_configuration_items":
+        if isinstance(data, dict):
+            duplicates = data.get("duplicates", {})
+            total = data.get("duplicate_count", len(duplicates))
+            match_field = data.get("match_field", "name")
+        else:
+            return raw_text
+        lines = [f"**Found {total} duplicate group(s)** (matched by {match_field})", ""]
+        # duplicates is a dict: {name: [list of CIs with that name]}
+        if isinstance(duplicates, dict):
+            for i, (name, cis) in enumerate(list(duplicates.items())[:10], 1):
+                count = len(cis) if isinstance(cis, list) else "?"
+                lines.append(f"  {i}. **{name}** — {count} copies")
+        elif isinstance(duplicates, list):
+            for i, ci in enumerate(duplicates[:10], 1):
+                name = ci.get("name", "Unnamed") if isinstance(ci, dict) else str(ci)
+                lines.append(f"  {i}. {name}")
+        if isinstance(total, int) and total > 10:
+            lines.append(f"\n  ... and {total - 10} more groups")
+        return "\n".join(lines)
+
+    if tool_name == "run_compliance_check":
+        lines = ["**CMDB Compliance Check**", ""]
+        if isinstance(data, dict):
+            overall = data.get("overall_status", data.get("status", "unknown"))
+            lines.append(f"  Overall: **{overall.upper()}**")
+            for k, v in data.items():
+                if k in ("overall_status", "status"):
+                    continue
+                if isinstance(v, dict):
+                    lines.append(f"\n  **{k.replace('_', ' ').title()}**")
+                    for sk, sv in v.items():
+                        lines.append(f"    {sk.replace('_', ' ').title()}: {sv}")
+                elif isinstance(v, list):
+                    lines.append(f"\n  **{k.replace('_', ' ').title()}**: {len(v)} items")
+                else:
+                    lines.append(f"  {k.replace('_', ' ').title()}: {v}")
+        return "\n".join(lines)
+
+    # Fallback: return raw text for unhandled tools
+    return raw_text
+
+
 def _make_cmdb_handler(server_url: str) -> Any:
     """Create a dispatch handler for the CMDB agent.
 
@@ -202,8 +379,11 @@ def _make_cmdb_handler(server_url: str) -> Any:
                 else:
                     texts.append(str(item))
 
+            raw_response = "\n".join(texts)
+            formatted = _format_cmdb_response(tool_name, raw_response)
+
             return {
-                "agent_response": "\n".join(texts),
+                "agent_response": formatted,
                 "tool_used": tool_name,
                 "source": "cmdb-mcp-server",
             }
