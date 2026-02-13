@@ -1,22 +1,31 @@
 {
-  "status": "idle",
-  "current_phase": null,
-  "current_ticket": null,
-  "current_agent": null,
-  "current_step": null,
+  "status": "running",
+  "current_phase": "phase-1",
+  "current_ticket": "ORCH-001",
+  "current_agent": "build",
+  "current_step": "build",
   "last_completed_step": null,
   "failed_step": null,
   "failure_reason": null,
   "blocked_reason": null,
-  "last_run": null,
-  "auto_mode": null,
+  "last_run": "2026-02-13T09:00:00Z",
+  "auto_mode": {
+    "active": true,
+    "started_at": "2026-02-13T09:00:00Z",
+    "max_tickets": 10,
+    "max_hours": 8,
+    "tickets_completed": 0,
+    "tickets_skipped": 0,
+    "consecutive_failures": 0,
+    "session_log": []
+  },
   "step_tracking": {
     "step_order": ["plan", "build", "validate", "test", "monitor"],
-    "current_step": null,
+    "current_step": "plan",
     "steps_completed": [],
-    "steps_remaining": [],
+    "steps_remaining": ["plan", "build", "validate", "test", "monitor"],
     "step_results": {
-      "plan": { "status": null, "started_at": null, "completed_at": null, "error": null, "error_code": null, "retry_count": 0, "last_retry_at": null },
+      "plan": { "status": "running", "started_at": "2026-02-13T09:00:00Z", "completed_at": null, "error": null, "error_code": null, "retry_count": 0, "last_retry_at": null },
       "build": { "status": null, "started_at": null, "completed_at": null, "error": null, "error_code": null, "retry_count": 0, "last_retry_at": null },
       "validate": { "status": null, "started_at": null, "completed_at": null, "error": null, "error_code": null, "retry_count": 0, "last_retry_at": null },
       "test": { "status": null, "started_at": null, "completed_at": null, "error": null, "error_code": null, "retry_count": 0, "last_retry_at": null },
@@ -26,12 +35,20 @@
   "fix_loop": null,
   "recovery_history": [],
   "agents": {
-    "plan": { "status": "idle", "last_run": null, "tickets_created": 0 },
+    "plan": { "status": "running", "last_run": "2026-02-13T09:00:00Z", "tickets_created": 0 },
     "build": { "status": "idle", "last_run": null, "prs_created": 0 },
     "validate": { "status": "idle", "last_run": null, "issues_found": 0 },
     "test": { "status": "idle", "last_run": null, "tests_run": 0, "failures": 0 },
     "monitor": { "status": "idle", "last_run": null, "alerts": 0 },
     "improve": { "status": "idle", "last_run": null, "suggestions": 0 }
   },
-  "history": []
+  "history": [
+    {
+      "timestamp": "2026-02-13T09:00:00Z",
+      "agent": "orchestrator",
+      "action": "auto_mode_started",
+      "details": "Auto mode session started. Scope: phase 1 (4 tickets). Max tickets: 10. Max hours: 8.",
+      "result": "success"
+    }
+  ]
 }
