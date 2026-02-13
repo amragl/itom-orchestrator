@@ -8,6 +8,7 @@ handles cross-agent communication, and maintains execution state.
 __version__ = "0.1.0"
 __author__ = "Cesar Garcia Lopez"
 
+from itom_orchestrator.agent_config import AgentConfigLoader
 from itom_orchestrator.config import OrchestratorConfig, get_config
 from itom_orchestrator.health import AgentHealthChecker
 from itom_orchestrator.logging_config import get_structured_logger, setup_logging
@@ -30,6 +31,8 @@ __all__ = [
     "AgentRegistry",
     # Health
     "AgentHealthChecker",
+    # Agent config
+    "AgentConfigLoader",
     # MCP server
     "mcp",
 ]
