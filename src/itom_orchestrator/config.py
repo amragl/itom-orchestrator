@@ -40,6 +40,20 @@ class OrchestratorConfig(BaseSettings):
         description=("Directory for log files. If empty, defaults to ``<data_dir>/logs``."),
     )
 
+    # HTTP server settings
+    http_host: str = Field(
+        default="0.0.0.0",
+        description="Host to bind the HTTP server to.",
+    )
+    http_port: int = Field(
+        default=8000,
+        description="Port for the HTTP server.",
+    )
+    cors_origins: list[str] = Field(
+        default=["http://localhost:3000", "http://localhost:5173", "http://127.0.0.1:3000"],
+        description="Allowed CORS origins for the HTTP API.",
+    )
+
     @computed_field  # type: ignore[prop-decorator]
     @property
     def state_dir(self) -> str:
