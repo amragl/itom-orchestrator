@@ -7,7 +7,7 @@
       "name": "Foundation",
       "description": "Project structure, configuration, MCP server skeleton, core models, and state persistence. Establishes the foundational infrastructure all subsequent phases build upon.",
       "milestone": "Python package installs cleanly, MCP server starts, health endpoint responds, all core models defined, state persistence operational",
-      "status": "active",
+      "status": "completed",
       "tickets": ["ORCH-001", "ORCH-002", "ORCH-003", "ORCH-004"]
     },
     {
@@ -15,7 +15,7 @@
       "name": "Agent Registry",
       "description": "Agent registration, capability declaration, health checking, and dynamic configuration. The orchestrator learns what agents exist and what they can do.",
       "milestone": "All 6 ITOM agents registered with capabilities, health checks functional, get_agent_registry and get_agent_status MCP tools operational",
-      "status": "planned",
+      "status": "active",
       "tickets": ["ORCH-005", "ORCH-006", "ORCH-007"]
     },
     {
@@ -115,12 +115,12 @@
       "phase": "phase-1",
       "priority": "high",
       "type": "feature",
-      "status": "planned",
+      "status": "done",
       "dependencies": ["ORCH-001", "ORCH-003"],
       "assigned_agent": "build",
       "estimated_complexity": "medium",
-      "pr_number": null,
-      "completed_at": null
+      "pr_number": 30,
+      "completed_at": "2026-02-13T09:45:00Z"
     },
     {
       "id": "ORCH-005",
