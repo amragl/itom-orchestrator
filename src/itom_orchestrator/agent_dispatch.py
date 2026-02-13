@@ -124,6 +124,32 @@ def _extract_name_hint(message: str, ci_type: str | None) -> str | None:
     return hint if hint else None
 
 
+def _extract_identifier(message: str) -> str:
+    """Extract a CI identifier (sys_id or name) from a message.
+
+    Looks for a 32-char hex string (sys_id) first, then falls back to
+    the last meaningful word/phrase in the message.
+    """
+    import re
+
+    # Check for sys_id (32-char hex)
+    match = re.search(r"\b[0-9a-f]{32}\b", message.lower())
+    if match:
+        return match.group()
+
+    # Strip common command words and return the rest as the identifier
+    filler = {
+        "show", "get", "find", "the", "of", "for", "a", "an", "me",
+        "details", "detail", "info", "about", "history", "changes",
+        "to", "impact", "analysis", "dependency", "tree", "dependencies",
+        "relationships", "relationship", "relations", "state", "compare",
+        "ci", "configuration", "item",
+    }
+    words = message.split()
+    remaining = [w for w in words if w.lower() not in filler]
+    return " ".join(remaining).strip() if remaining else message
+
+
 def _format_dict_value(v: Any) -> str:
     """Format a value for display, handling nested dicts and lists."""
     if isinstance(v, dict):
@@ -410,7 +436,196 @@ def _format_cmdb_response(tool_name: str, raw_text: str) -> str:
                     lines.append(f"  {k.replace('_', ' ').title()}: {v}")
         return "\n".join(lines)
 
-    # Fallback: return raw text for unhandled tools
+    if tool_name == "get_cmdb_health_trend_report":
+        lines = ["**CMDB Health Trend Report**", ""]
+        if isinstance(data, dict):
+            lookback = data.get("lookback_days", "N/A")
+            snapshots = data.get("snapshots", data.get("trend_data", []))
+            lines.append(f"  Lookback: {lookback} days, Snapshots: {len(snapshots)}")
+            lines.append("")
+            if isinstance(snapshots, list):
+                for snap in snapshots[:10]:
+                    if isinstance(snap, dict):
+                        ts = snap.get("timestamp", snap.get("captured_at", ""))
+                        score = snap.get("overall_health_score", snap.get("score", "N/A"))
+                        lines.append(f"  {ts}: score {score}")
+            trends = data.get("trends", {})
+            if isinstance(trends, dict):
+                for k, v in trends.items():
+                    lines.append(f"  {k.replace('_', ' ').title()}: {_format_dict_value(v)}")
+        return "\n".join(lines)
+
+    if tool_name == "reconcile_cmdb_configuration_data":
+        lines = ["**CMDB Data Reconciliation**", ""]
+        if isinstance(data, dict):
+            for check_name, check_data in data.items():
+                if isinstance(check_data, dict):
+                    status = check_data.get("status", "")
+                    count = check_data.get("count", check_data.get("total", ""))
+                    lines.append(f"  **{check_name.replace('_', ' ').title()}**: {status}")
+                    if count:
+                        lines.append(f"    Issues found: {count}")
+                    issues = check_data.get("issues", check_data.get("items", []))
+                    if isinstance(issues, list):
+                        for item in issues[:5]:
+                            if isinstance(item, dict):
+                                lines.append(f"    - {item.get('name', item.get('sys_id', str(item)))}")
+                    lines.append("")
+        return "\n".join(lines)
+
+    if tool_name == "query_ci_dependency_tree":
+        lines = ["**CI Dependency Tree**", ""]
+        if isinstance(data, dict):
+            root = data.get("root", data.get("ci", {}))
+            if isinstance(root, dict):
+                lines.append(f"  Root: **{root.get('name', root.get('sys_id', 'unknown'))}**")
+            tree = data.get("tree", data.get("children", data.get("dependencies", [])))
+            if isinstance(tree, list):
+                for node in tree[:15]:
+                    if isinstance(node, dict):
+                        name = node.get("name", node.get("display_name", ""))
+                        rel = node.get("relationship_type", node.get("type", ""))
+                        depth = node.get("depth", 0)
+                        indent = "  " * (depth + 1)
+                        lines.append(f"  {indent}{'└─' if depth else '├─'} {name} ({rel})")
+            total = data.get("total_nodes", len(tree) if isinstance(tree, list) else 0)
+            lines.append(f"\n  Total nodes: {total}")
+        return "\n".join(lines)
+
+    if tool_name == "analyze_configuration_item_impact":
+        lines = ["**CI Impact Analysis**", ""]
+        if isinstance(data, dict):
+            ci = data.get("ci", data.get("target", {}))
+            if isinstance(ci, dict):
+                lines.append(f"  Target: **{ci.get('name', 'unknown')}**")
+            change_type = data.get("change_type", "unknown")
+            lines.append(f"  Change type: {change_type}")
+            lines.append("")
+            impacted = data.get("impacted_cis", data.get("impact", []))
+            if isinstance(impacted, list):
+                lines.append(f"  **Impacted CIs: {len(impacted)}**")
+                for item in impacted[:10]:
+                    if isinstance(item, dict):
+                        name = item.get("name", "unknown")
+                        svc = item.get("sys_class_name", "")
+                        lines.append(f"    - {name} ({svc})" if svc else f"    - {name}")
+        return "\n".join(lines)
+
+    if tool_name == "get_configuration_item_history":
+        lines = ["**CI Change History**", ""]
+        if isinstance(data, dict):
+            history = data.get("history", data.get("entries", data.get("changes", [])))
+            if isinstance(history, list):
+                lines.append(f"  {len(history)} change(s) found")
+                lines.append("")
+                for entry in history[:15]:
+                    if isinstance(entry, dict):
+                        ts = entry.get("sys_updated_on", entry.get("timestamp", ""))
+                        field = entry.get("field", entry.get("fieldname", ""))
+                        old = entry.get("old_value", entry.get("oldvalue", ""))
+                        new = entry.get("new_value", entry.get("newvalue", ""))
+                        user = entry.get("user", entry.get("sys_updated_by", ""))
+                        line = f"  {ts}: **{field}** changed"
+                        if old and new:
+                            line += f" from '{old}' to '{new}'"
+                        elif new:
+                            line += f" to '{new}'"
+                        if user:
+                            line += f" (by {user})"
+                        lines.append(line)
+        return "\n".join(lines)
+
+    if tool_name == "list_ci_types":
+        lines = ["**Available CI Types**", ""]
+        if isinstance(data, dict):
+            for ci_type, info in data.items():
+                if isinstance(info, dict):
+                    fields = info.get("fields", info.get("available_fields", []))
+                    field_count = len(fields) if isinstance(fields, list) else "?"
+                    lines.append(f"  **{ci_type}** — {field_count} fields")
+                else:
+                    lines.append(f"  **{ci_type}**")
+        elif isinstance(data, list):
+            for item in data:
+                if isinstance(item, dict):
+                    lines.append(f"  **{item.get('name', item.get('type', str(item)))}**")
+                else:
+                    lines.append(f"  **{item}**")
+        return "\n".join(lines)
+
+    if tool_name == "list_relationship_types_available":
+        lines = ["**Available Relationship Types**", ""]
+        if isinstance(data, dict):
+            rel_types = data.get("relationship_types", data.get("types", data))
+            if isinstance(rel_types, list):
+                for rt in rel_types:
+                    if isinstance(rt, dict):
+                        name = rt.get("name", rt.get("type", "unknown"))
+                        desc = rt.get("description", "")
+                        lines.append(f"  - **{name}**" + (f": {desc}" if desc else ""))
+                    else:
+                        lines.append(f"  - {rt}")
+            elif isinstance(rel_types, dict):
+                for name, info in rel_types.items():
+                    lines.append(f"  - **{name}**: {_format_dict_value(info)}")
+        return "\n".join(lines)
+
+    if tool_name in ("list_ci_classes_with_ire", "get_ire_rules_for_class"):
+        title = "CI Classes with IRE" if "list" in tool_name else "IRE Rules"
+        lines = [f"**{title}**", ""]
+        if isinstance(data, dict):
+            for k, v in data.items():
+                lines.append(f"  **{k}**: {_format_dict_value(v)}")
+        elif isinstance(data, list):
+            for item in data[:20]:
+                if isinstance(item, dict):
+                    name = item.get("name", item.get("ci_class", str(item)))
+                    lines.append(f"  - {name}")
+                else:
+                    lines.append(f"  - {item}")
+        return "\n".join(lines)
+
+    if tool_name in ("query_audit_log", "get_ci_activity_log"):
+        title = "Audit Log" if "audit" in tool_name else "CI Activity Log"
+        lines = [f"**{title}**", ""]
+        entries = data if isinstance(data, list) else data.get("entries", data.get("results", []))
+        if isinstance(entries, list):
+            lines.append(f"  {len(entries)} entries")
+            lines.append("")
+            for entry in entries[:15]:
+                if isinstance(entry, dict):
+                    ts = entry.get("timestamp", entry.get("sys_updated_on", ""))
+                    action = entry.get("action", entry.get("operation", ""))
+                    target = entry.get("ci_name", entry.get("target", ""))
+                    line = f"  {ts}: {action}"
+                    if target:
+                        line += f" — {target}"
+                    lines.append(line)
+        elif isinstance(data, dict):
+            for k, v in data.items():
+                lines.append(f"  {k.replace('_', ' ').title()}: {_format_dict_value(v)}")
+        return "\n".join(lines)
+
+    # Generic fallback: format JSON keys as a readable summary
+    if isinstance(data, dict):
+        lines = [f"**{tool_name.replace('_', ' ').title()}**", ""]
+        for k, v in data.items():
+            label = k.replace("_", " ").title()
+            if isinstance(v, dict):
+                lines.append(f"  **{label}**")
+                for sk, sv in list(v.items())[:10]:
+                    lines.append(f"    {sk.replace('_', ' ').title()}: {_format_dict_value(sv)}")
+            elif isinstance(v, list):
+                lines.append(f"  **{label}**: {len(v)} items")
+                for item in v[:5]:
+                    if isinstance(item, dict):
+                        lines.append(f"    - {_format_dict_value(item)}")
+                    else:
+                        lines.append(f"    - {item}")
+            else:
+                lines.append(f"  {label}: {_format_dict_value(v)}")
+        return "\n".join(lines)
+
     return raw_text
 
 
@@ -438,19 +653,70 @@ def _make_cmdb_handler(server_url: str) -> Any:
         arguments: dict[str, Any] = {}
 
         # --- Specific tool commands (highest priority) ---
-        if any(kw in message_lower for kw in ["dashboard", "metrics", "overview"]):
-            tool_name = "get_operational_dashboard"
-        elif any(kw in message_lower for kw in ["health check", "server health", "mcp health"]):
+
+        # Operational / MCP server health
+        if any(kw in message_lower for kw in ["mcp health", "server health", "health check"]):
             tool_name = "check_server_health"
-        elif any(kw in message_lower for kw in ["cmdb health", "cmdb metrics", "data quality", "health metric",
-                                                  "health score", "completeness", "discovery coverage"]):
+        elif any(kw in message_lower for kw in ["operational dashboard", "ops dashboard"]):
+            tool_name = "get_operational_dashboard"
+        elif any(kw in message_lower for kw in ["prometheus", "prom metrics"]):
+            tool_name = "get_prometheus_metrics"
+
+        # CMDB health & data quality — trend check BEFORE generic health
+        # ("trend report" contains "report" which would match "health report")
+        elif any(kw in message_lower for kw in ["health trend", "trend report", "health over time"]):
+            tool_name = "get_cmdb_health_trend_report"
+            ci_type = _infer_ci_type(message_lower)
+            if ci_type:
+                arguments = {"ci_type": ci_type}
+        elif any(kw in message_lower for kw in ["cmdb health", "cmdb metrics", "data quality",
+                                                  "health metric", "health score", "completeness",
+                                                  "discovery coverage", "health report"]):
             tool_name = "get_cmdb_health_metrics"
             ci_type = _infer_ci_type(message_lower) or "server"
             arguments = {"ci_type": ci_type}
+        elif any(kw in message_lower for kw in ["capture snapshot", "health snapshot", "take snapshot"]):
+            tool_name = "capture_cmdb_health_snapshot"
+            ci_type = _infer_ci_type(message_lower)
+            if ci_type:
+                arguments = {"ci_type": ci_type}
+        elif any(kw in message_lower for kw in ["validate metrics", "verify metrics"]):
+            tool_name = "validate_cmdb_health_metrics"
+            ci_type = _infer_ci_type(message_lower)
+            if ci_type:
+                arguments = {"ci_type": ci_type}
+
+        # Compliance & reconciliation
         elif any(kw in message_lower for kw in ["compliance"]):
             tool_name = "run_compliance_check"
-        elif any(kw in message_lower for kw in ["audit", "quality"]):
+            ci_type = _infer_ci_type(message_lower)
+            if ci_type:
+                arguments = {"ci_type": ci_type}
+        elif any(kw in message_lower for kw in ["reconcile", "reconciliation", "data drift"]):
+            tool_name = "reconcile_cmdb_configuration_data"
+            ci_type = _infer_ci_type(message_lower)
+            if ci_type:
+                arguments = {"ci_type": ci_type}
+        elif any(kw in message_lower for kw in ["remediate", "remediation", "fix data"]):
+            tool_name = "remediate_cmdb_data_issues"
+            ci_type = _infer_ci_type(message_lower) or "server"
+            arguments = {"issue_type": "missing_fields", "ci_type": ci_type, "action": "preview"}
+
+        # Audit & activity (CMDB-specific audit tools)
+        elif any(kw in message_lower for kw in ["cmdb audit", "audit summary", "audit stats"]):
             tool_name = "get_audit_summary"
+        elif any(kw in message_lower for kw in ["audit log", "audit entries", "audit history"]):
+            tool_name = "query_audit_log"
+            ci_type = _infer_ci_type(message_lower)
+            if ci_type:
+                arguments = {"ci_type": ci_type}
+        elif any(kw in message_lower for kw in ["activity log", "recent activity", "recent changes"]):
+            tool_name = "get_ci_activity_log"
+            ci_type = _infer_ci_type(message_lower)
+            if ci_type:
+                arguments = {"ci_type": ci_type}
+
+        # Data quality checks
         elif any(kw in message_lower for kw in ["stale", "outdated"]):
             tool_name = "find_stale_configuration_items"
             ci_type = _infer_ci_type(message_lower) or "server"
@@ -459,17 +725,55 @@ def _make_cmdb_handler(server_url: str) -> Any:
             tool_name = "find_duplicate_configuration_items"
             ci_type = _infer_ci_type(message_lower) or "server"
             arguments = {"ci_type": ci_type}
+
+        # Relationships & impact
+        elif any(kw in message_lower for kw in ["dependency tree", "dependencies of"]):
+            tool_name = "query_ci_dependency_tree"
+            arguments = {"sys_id": _extract_identifier(message)}
+        elif any(kw in message_lower for kw in ["impact analysis", "impact of", "change impact"]):
+            tool_name = "analyze_configuration_item_impact"
+            arguments = {"sys_id": _extract_identifier(message), "change_type": "modify"}
+        elif any(kw in message_lower for kw in ["relationship type", "relation type"]):
+            tool_name = "list_relationship_types_available"
         elif any(kw in message_lower for kw in ["relationship", "relations", "upstream", "downstream"]):
             tool_name = "query_ci_relationships"
-            arguments = {"sys_id": message}
-        elif any(kw in message_lower for kw in ["detail", "info about"]):
+            arguments = {"sys_id": _extract_identifier(message)}
+
+        # CI details & history
+        elif any(kw in message_lower for kw in ["history of", "change history", "changes to"]):
+            tool_name = "get_configuration_item_history"
+            arguments = {"sys_id": _extract_identifier(message)}
+        elif any(kw in message_lower for kw in ["compare state", "compare ci", "state comparison"]):
+            tool_name = "compare_configuration_item_state"
+            arguments = {"sys_id": _extract_identifier(message), "timestamp": "2025-01-01"}
+        elif any(kw in message_lower for kw in ["detail", "info about", "show ci"]):
             tool_name = "get_configuration_item_details"
-            arguments = {"identifier": message}
+            arguments = {"identifier": _extract_identifier(message)}
+
+        # IRE (Identification & Reconciliation)
+        elif any(kw in message_lower for kw in ["ire rule", "identification rule"]):
+            tool_name = "get_ire_rules_for_class"
+            ci_type = _infer_ci_type(message_lower) or "server"
+            arguments = {"ci_class": f"cmdb_ci_{ci_type}"}
+        elif any(kw in message_lower for kw in ["ire class", "ci class", "classes with ire"]):
+            tool_name = "list_ci_classes_with_ire"
+        elif any(kw in message_lower for kw in ["validate ci", "validate against ire"]):
+            tool_name = "validate_ci_against_ire"
+            ci_type = _infer_ci_type(message_lower) or "server"
+            arguments = {"ci_type": ci_type, "fields": {}}
+
+        # CI types listing
+        elif any(kw in message_lower for kw in ["ci type", "ci class", "list types", "what types"]):
+            tool_name = "list_ci_types"
+
+        # Count queries
         elif any(kw in message_lower for kw in ["count", "how many"]):
             tool_name = "search_configuration_items"
             ci_type = _infer_ci_type(message_lower)
             arguments = {"ci_type": ci_type, "limit": 1}
             arguments["_count_only"] = True
+
+        # Generic health/status fallback
         elif any(kw in message_lower for kw in ["health", "status"]):
             tool_name = "get_cmdb_health_metrics"
             ci_type = _infer_ci_type(message_lower) or "server"
