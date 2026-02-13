@@ -1,1 +1,204 @@
-{ "entries": [] }
+{
+  "entries": [
+    {
+      "timestamp": "2026-02-12T12:40:00Z",
+      "event": "ticket_created",
+      "ticket_id": "ORCH-001",
+      "phase_id": "phase-1",
+      "details": "Created ticket ORCH-001: Project structure and Python package scaffold (GitHub issue #2)",
+      "metrics_snapshot": { "overall_percentage": 0, "open_bugs": 0, "velocity": 0, "total_tickets": 25, "completed_tickets": 0 }
+    },
+    {
+      "timestamp": "2026-02-12T12:40:00Z",
+      "event": "ticket_created",
+      "ticket_id": "ORCH-002",
+      "phase_id": "phase-1",
+      "details": "Created ticket ORCH-002: FastMCP server skeleton with health endpoint (GitHub issue #3)",
+      "metrics_snapshot": { "overall_percentage": 0, "open_bugs": 0, "velocity": 0, "total_tickets": 25, "completed_tickets": 0 }
+    },
+    {
+      "timestamp": "2026-02-12T12:40:00Z",
+      "event": "ticket_created",
+      "ticket_id": "ORCH-003",
+      "phase_id": "phase-1",
+      "details": "Created ticket ORCH-003: Core Pydantic models for agents, tasks, and workflows (GitHub issue #4)",
+      "metrics_snapshot": { "overall_percentage": 0, "open_bugs": 0, "velocity": 0, "total_tickets": 25, "completed_tickets": 0 }
+    },
+    {
+      "timestamp": "2026-02-12T12:40:00Z",
+      "event": "ticket_created",
+      "ticket_id": "ORCH-004",
+      "phase_id": "phase-1",
+      "details": "Created ticket ORCH-004: State persistence layer with JSON file storage (GitHub issue #5)",
+      "metrics_snapshot": { "overall_percentage": 0, "open_bugs": 0, "velocity": 0, "total_tickets": 25, "completed_tickets": 0 }
+    },
+    {
+      "timestamp": "2026-02-12T12:40:00Z",
+      "event": "ticket_created",
+      "ticket_id": "ORCH-005",
+      "phase_id": "phase-2",
+      "details": "Created ticket ORCH-005: Agent Registry -- registration and capability declaration (GitHub issue #6)",
+      "metrics_snapshot": { "overall_percentage": 0, "open_bugs": 0, "velocity": 0, "total_tickets": 25, "completed_tickets": 0 }
+    },
+    {
+      "timestamp": "2026-02-12T12:40:00Z",
+      "event": "ticket_created",
+      "ticket_id": "ORCH-006",
+      "phase_id": "phase-2",
+      "details": "Created ticket ORCH-006: Agent health checking and status monitoring (GitHub issue #7)",
+      "metrics_snapshot": { "overall_percentage": 0, "open_bugs": 0, "velocity": 0, "total_tickets": 25, "completed_tickets": 0 }
+    },
+    {
+      "timestamp": "2026-02-12T12:40:00Z",
+      "event": "ticket_created",
+      "ticket_id": "ORCH-007",
+      "phase_id": "phase-2",
+      "details": "Created ticket ORCH-007: Agent configuration file and dynamic loading (GitHub issue #8)",
+      "metrics_snapshot": { "overall_percentage": 0, "open_bugs": 0, "velocity": 0, "total_tickets": 25, "completed_tickets": 0 }
+    },
+    {
+      "timestamp": "2026-02-12T12:40:00Z",
+      "event": "ticket_created",
+      "ticket_id": "ORCH-008",
+      "phase_id": "phase-3",
+      "details": "Created ticket ORCH-008: Task Router -- domain-based routing engine (GitHub issue #9)",
+      "metrics_snapshot": { "overall_percentage": 0, "open_bugs": 0, "velocity": 0, "total_tickets": 25, "completed_tickets": 0 }
+    },
+    {
+      "timestamp": "2026-02-12T12:40:00Z",
+      "event": "ticket_created",
+      "ticket_id": "ORCH-009",
+      "phase_id": "phase-3",
+      "details": "Created ticket ORCH-009: Task execution and result handling (GitHub issue #10)",
+      "metrics_snapshot": { "overall_percentage": 0, "open_bugs": 0, "velocity": 0, "total_tickets": 25, "completed_tickets": 0 }
+    },
+    {
+      "timestamp": "2026-02-12T12:40:00Z",
+      "event": "ticket_created",
+      "ticket_id": "ORCH-010",
+      "phase_id": "phase-3",
+      "details": "Created ticket ORCH-010: Routing rules configuration and domain mapping (GitHub issue #11)",
+      "metrics_snapshot": { "overall_percentage": 0, "open_bugs": 0, "velocity": 0, "total_tickets": 25, "completed_tickets": 0 }
+    },
+    {
+      "timestamp": "2026-02-12T12:40:00Z",
+      "event": "ticket_created",
+      "ticket_id": "ORCH-011",
+      "phase_id": "phase-4",
+      "details": "Created ticket ORCH-011: Workflow definition schema and template system (GitHub issue #12)",
+      "metrics_snapshot": { "overall_percentage": 0, "open_bugs": 0, "velocity": 0, "total_tickets": 25, "completed_tickets": 0 }
+    },
+    {
+      "timestamp": "2026-02-12T12:40:00Z",
+      "event": "ticket_created",
+      "ticket_id": "ORCH-012",
+      "phase_id": "phase-4",
+      "details": "Created ticket ORCH-012: Workflow state machine and execution engine (GitHub issue #13)",
+      "metrics_snapshot": { "overall_percentage": 0, "open_bugs": 0, "velocity": 0, "total_tickets": 25, "completed_tickets": 0 }
+    },
+    {
+      "timestamp": "2026-02-12T12:40:00Z",
+      "event": "ticket_created",
+      "ticket_id": "ORCH-013",
+      "phase_id": "phase-4",
+      "details": "Created ticket ORCH-013: Workflow checkpointing and resume from failure (GitHub issue #14)",
+      "metrics_snapshot": { "overall_percentage": 0, "open_bugs": 0, "velocity": 0, "total_tickets": 25, "completed_tickets": 0 }
+    },
+    {
+      "timestamp": "2026-02-12T12:40:00Z",
+      "event": "ticket_created",
+      "ticket_id": "ORCH-014",
+      "phase_id": "phase-4",
+      "details": "Created ticket ORCH-014: Pre-built workflow templates for common ITOM scenarios (GitHub issue #15)",
+      "metrics_snapshot": { "overall_percentage": 0, "open_bugs": 0, "velocity": 0, "total_tickets": 25, "completed_tickets": 0 }
+    },
+    {
+      "timestamp": "2026-02-12T12:40:00Z",
+      "event": "ticket_created",
+      "ticket_id": "ORCH-015",
+      "phase_id": "phase-5",
+      "details": "Created ticket ORCH-015: Inter-agent message passing system (GitHub issue #16)",
+      "metrics_snapshot": { "overall_percentage": 0, "open_bugs": 0, "velocity": 0, "total_tickets": 25, "completed_tickets": 0 }
+    },
+    {
+      "timestamp": "2026-02-12T12:40:00Z",
+      "event": "ticket_created",
+      "ticket_id": "ORCH-016",
+      "phase_id": "phase-5",
+      "details": "Created ticket ORCH-016: Event bus for workflow and agent lifecycle events (GitHub issue #17)",
+      "metrics_snapshot": { "overall_percentage": 0, "open_bugs": 0, "velocity": 0, "total_tickets": 25, "completed_tickets": 0 }
+    },
+    {
+      "timestamp": "2026-02-12T12:40:00Z",
+      "event": "ticket_created",
+      "ticket_id": "ORCH-017",
+      "phase_id": "phase-5",
+      "details": "Created ticket ORCH-017: Agent notification and callback system (GitHub issue #18)",
+      "metrics_snapshot": { "overall_percentage": 0, "open_bugs": 0, "velocity": 0, "total_tickets": 25, "completed_tickets": 0 }
+    },
+    {
+      "timestamp": "2026-02-12T12:40:00Z",
+      "event": "ticket_created",
+      "ticket_id": "ORCH-018",
+      "phase_id": "phase-6",
+      "details": "Created ticket ORCH-018: Role boundary definitions and policy engine (GitHub issue #19)",
+      "metrics_snapshot": { "overall_percentage": 0, "open_bugs": 0, "velocity": 0, "total_tickets": 25, "completed_tickets": 0 }
+    },
+    {
+      "timestamp": "2026-02-12T12:40:00Z",
+      "event": "ticket_created",
+      "ticket_id": "ORCH-019",
+      "phase_id": "phase-6",
+      "details": "Created ticket ORCH-019: Action audit trail and compliance logging (GitHub issue #20)",
+      "metrics_snapshot": { "overall_percentage": 0, "open_bugs": 0, "velocity": 0, "total_tickets": 25, "completed_tickets": 0 }
+    },
+    {
+      "timestamp": "2026-02-12T12:40:00Z",
+      "event": "ticket_created",
+      "ticket_id": "ORCH-020",
+      "phase_id": "phase-6",
+      "details": "Created ticket ORCH-020: Role boundary configuration for all ITOM agents (GitHub issue #21)",
+      "metrics_snapshot": { "overall_percentage": 0, "open_bugs": 0, "velocity": 0, "total_tickets": 25, "completed_tickets": 0 }
+    },
+    {
+      "timestamp": "2026-02-12T12:40:00Z",
+      "event": "ticket_created",
+      "ticket_id": "ORCH-021",
+      "phase_id": "phase-7",
+      "details": "Created ticket ORCH-021: Unit tests for registry, router, and models (GitHub issue #22)",
+      "metrics_snapshot": { "overall_percentage": 0, "open_bugs": 0, "velocity": 0, "total_tickets": 25, "completed_tickets": 0 }
+    },
+    {
+      "timestamp": "2026-02-12T12:40:00Z",
+      "event": "ticket_created",
+      "ticket_id": "ORCH-022",
+      "phase_id": "phase-7",
+      "details": "Created ticket ORCH-022: Integration tests for workflow execution end-to-end (GitHub issue #23)",
+      "metrics_snapshot": { "overall_percentage": 0, "open_bugs": 0, "velocity": 0, "total_tickets": 25, "completed_tickets": 0 }
+    },
+    {
+      "timestamp": "2026-02-12T12:40:00Z",
+      "event": "ticket_created",
+      "ticket_id": "ORCH-023",
+      "phase_id": "phase-7",
+      "details": "Created ticket ORCH-023: Integration tests for messaging, events, and role enforcement (GitHub issue #24)",
+      "metrics_snapshot": { "overall_percentage": 0, "open_bugs": 0, "velocity": 0, "total_tickets": 25, "completed_tickets": 0 }
+    },
+    {
+      "timestamp": "2026-02-12T12:40:00Z",
+      "event": "ticket_created",
+      "ticket_id": "ORCH-024",
+      "phase_id": "phase-7",
+      "details": "Created ticket ORCH-024: MCP tool integration tests and server validation (GitHub issue #25)",
+      "metrics_snapshot": { "overall_percentage": 0, "open_bugs": 0, "velocity": 0, "total_tickets": 25, "completed_tickets": 0 }
+    },
+    {
+      "timestamp": "2026-02-12T12:40:00Z",
+      "event": "ticket_created",
+      "ticket_id": "ORCH-025",
+      "phase_id": "phase-7",
+      "details": "Created ticket ORCH-025: Error handling hardening and edge case coverage (GitHub issue #26)",
+      "metrics_snapshot": { "overall_percentage": 0, "open_bugs": 0, "velocity": 0, "total_tickets": 25, "completed_tickets": 0 }
+    }
+  ]
+}

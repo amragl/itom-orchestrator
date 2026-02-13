@@ -1,14 +1,199 @@
 {
   "project": "itom-orchestrator",
-  "created_at": "2026-02-12T21:45:00Z",
-  "updated_at": "2026-02-12T21:45:00Z",
-  "phases": [],
-  "milestones": [],
+  "vision": "Central coordinator for all ITOM agents -- routes tasks, manages multi-agent workflows, enforces role boundaries, and maintains execution state across the ServiceNow ITOM automation suite",
+  "updated_at": "2026-02-12T12:40:00Z",
+  "phases": [
+    {
+      "id": "phase-1",
+      "name": "Foundation",
+      "description": "Project structure, configuration, MCP server skeleton, core models, and state persistence. Establishes the foundational infrastructure all subsequent phases build upon.",
+      "status": "active",
+      "order": 1,
+      "milestones": [
+        {
+          "id": "M-1",
+          "name": "Project scaffold and MCP server operational",
+          "description": "Python package installs cleanly, MCP server starts, health endpoint responds, all core models defined, state persistence operational",
+          "target_date": null,
+          "completed_date": null,
+          "status": "in-progress"
+        }
+      ],
+      "progress": {
+        "total_tickets": 4,
+        "completed": 0,
+        "in_progress": 0,
+        "bugs_found": 0,
+        "bugs_fixed": 0,
+        "improvements_proposed": 0,
+        "percentage": 0
+      }
+    },
+    {
+      "id": "phase-2",
+      "name": "Agent Registry",
+      "description": "Agent registration, capability declaration, health checking, and dynamic configuration. The orchestrator learns what agents exist and what they can do.",
+      "status": "planned",
+      "order": 2,
+      "milestones": [
+        {
+          "id": "M-2",
+          "name": "Agent registry with health monitoring",
+          "description": "All 6 ITOM agents registered with capabilities, health checks functional, get_agent_registry and get_agent_status MCP tools operational",
+          "target_date": null,
+          "completed_date": null,
+          "status": "todo"
+        }
+      ],
+      "progress": {
+        "total_tickets": 3,
+        "completed": 0,
+        "in_progress": 0,
+        "bugs_found": 0,
+        "bugs_fixed": 0,
+        "improvements_proposed": 0,
+        "percentage": 0
+      }
+    },
+    {
+      "id": "phase-3",
+      "name": "Task Routing",
+      "description": "Domain-based routing engine, task execution with timeout/retry, and configurable routing rules. The orchestrator can receive tasks and dispatch them to the right agent.",
+      "status": "planned",
+      "order": 3,
+      "milestones": [
+        {
+          "id": "M-3",
+          "name": "Intelligent task routing and execution",
+          "description": "route_task MCP tool correctly routes tasks by domain, task execution handles timeouts and retries, routing rules configurable via JSON",
+          "target_date": null,
+          "completed_date": null,
+          "status": "todo"
+        }
+      ],
+      "progress": {
+        "total_tickets": 3,
+        "completed": 0,
+        "in_progress": 0,
+        "bugs_found": 0,
+        "bugs_fixed": 0,
+        "improvements_proposed": 0,
+        "percentage": 0
+      }
+    },
+    {
+      "id": "phase-4",
+      "name": "Workflow Engine",
+      "description": "Multi-agent workflow definitions, state machine execution engine, checkpoint/resume, and pre-built workflow templates. The orchestrator can coordinate complex multi-agent operations.",
+      "status": "planned",
+      "order": 4,
+      "milestones": [
+        {
+          "id": "M-4",
+          "name": "Multi-agent workflow execution with checkpoint/resume",
+          "description": "execute_workflow runs multi-step workflows across agents, state machine enforces valid transitions, checkpoint/resume works after failures, 5 pre-built templates available",
+          "target_date": null,
+          "completed_date": null,
+          "status": "todo"
+        }
+      ],
+      "progress": {
+        "total_tickets": 4,
+        "completed": 0,
+        "in_progress": 0,
+        "bugs_found": 0,
+        "bugs_fixed": 0,
+        "improvements_proposed": 0,
+        "percentage": 0
+      }
+    },
+    {
+      "id": "phase-5",
+      "name": "Cross-Agent Communication",
+      "description": "Inter-agent message passing, event bus for lifecycle events, and agent notification/callback system. Agents can communicate through the orchestrator.",
+      "status": "planned",
+      "order": 5,
+      "milestones": [
+        {
+          "id": "M-5",
+          "name": "Full inter-agent communication stack",
+          "description": "send_agent_message MCP tool delivers messages between agents, event bus broadcasts lifecycle events, notification system proactively informs agents of relevant events",
+          "target_date": null,
+          "completed_date": null,
+          "status": "todo"
+        }
+      ],
+      "progress": {
+        "total_tickets": 3,
+        "completed": 0,
+        "in_progress": 0,
+        "bugs_found": 0,
+        "bugs_fixed": 0,
+        "improvements_proposed": 0,
+        "percentage": 0
+      }
+    },
+    {
+      "id": "phase-6",
+      "name": "Role Enforcement",
+      "description": "Role boundary definitions, policy enforcement engine, audit trail, and per-agent boundary configurations. The orchestrator ensures agents only operate within their designated domains.",
+      "status": "planned",
+      "order": 6,
+      "milestones": [
+        {
+          "id": "M-6",
+          "name": "Role enforcement and audit compliance",
+          "description": "enforce_role_boundaries MCP tool validates actions, all 6 agents have defined boundaries, audit log captures all actions with hash chain integrity",
+          "target_date": null,
+          "completed_date": null,
+          "status": "todo"
+        }
+      ],
+      "progress": {
+        "total_tickets": 3,
+        "completed": 0,
+        "in_progress": 0,
+        "bugs_found": 0,
+        "bugs_fixed": 0,
+        "improvements_proposed": 0,
+        "percentage": 0
+      }
+    },
+    {
+      "id": "phase-7",
+      "name": "Testing and Documentation",
+      "description": "Comprehensive unit tests, integration tests, MCP tool validation, and error handling hardening. Production-quality test coverage and robust error paths.",
+      "status": "planned",
+      "order": 7,
+      "milestones": [
+        {
+          "id": "M-7",
+          "name": "Production-quality test coverage and hardened errors",
+          "description": "90%+ code coverage, all MCP tools validated, all error paths tested, error handling hardened with clear error codes",
+          "target_date": null,
+          "completed_date": null,
+          "status": "todo"
+        }
+      ],
+      "progress": {
+        "total_tickets": 5,
+        "completed": 0,
+        "in_progress": 0,
+        "bugs_found": 0,
+        "bugs_fixed": 0,
+        "improvements_proposed": 0,
+        "percentage": 0
+      }
+    }
+  ],
   "summary": {
-    "total_phases": 0,
+    "total_phases": 7,
     "completed_phases": 0,
-    "total_tickets": 0,
+    "total_tickets": 25,
     "completed_tickets": 0,
-    "overall_percentage": 0
+    "total_bugs": 0,
+    "open_bugs": 0,
+    "overall_percentage": 0,
+    "velocity_tickets_per_week": 0
   }
 }
