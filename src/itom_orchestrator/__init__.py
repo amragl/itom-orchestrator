@@ -11,6 +11,7 @@ __author__ = "Cesar Garcia Lopez"
 from itom_orchestrator.config import OrchestratorConfig, get_config
 from itom_orchestrator.logging_config import get_structured_logger, setup_logging
 from itom_orchestrator.persistence import StatePersistence, get_persistence, reset_persistence
+from itom_orchestrator.registry import AgentRegistry
 from itom_orchestrator.server import mcp
 
 __all__ = [
@@ -24,6 +25,8 @@ __all__ = [
     "StatePersistence",
     "get_persistence",
     "reset_persistence",
+    # Registry
+    "AgentRegistry",
     # MCP server
     "mcp",
 ]

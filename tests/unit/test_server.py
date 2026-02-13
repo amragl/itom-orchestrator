@@ -1,8 +1,8 @@
 """
-Tests for the FastMCP server and the get_orchestrator_health tool.
+Tests for the FastMCP server and the MCP tools.
 
-Validates that the MCP server instance is correctly configured and that the
-health endpoint returns complete, accurate information.
+Validates that the MCP server instance is correctly configured and that
+health, registry, and agent detail tools return complete, accurate information.
 """
 
 from datetime import UTC, datetime
@@ -12,7 +12,15 @@ from fastmcp.tools.tool import FunctionTool
 
 from itom_orchestrator import __version__
 from itom_orchestrator.config import get_config
-from itom_orchestrator.server import _get_orchestrator_health, get_orchestrator_health, mcp
+from itom_orchestrator.server import (
+    _get_agent_details,
+    _get_agent_registry,
+    _get_orchestrator_health,
+    get_agent_details,
+    get_agent_registry,
+    get_orchestrator_health,
+    mcp,
+)
 
 
 class TestMCPServerInstance:
@@ -29,6 +37,16 @@ class TestMCPServerInstance:
         assert isinstance(get_orchestrator_health, FunctionTool)
         assert get_orchestrator_health.fn is _get_orchestrator_health
 
+    def test_registry_tool_is_registered(self) -> None:
+        """The get_agent_registry tool is registered on the MCP server."""
+        assert isinstance(get_agent_registry, FunctionTool)
+        assert get_agent_registry.fn is _get_agent_registry
+
+    def test_agent_details_tool_is_registered(self) -> None:
+        """The get_agent_details tool is registered on the MCP server."""
+        assert isinstance(get_agent_details, FunctionTool)
+        assert get_agent_details.fn is _get_agent_details
+
 
 class TestGetOrchestratorHealth:
     """Tests for the get_orchestrator_health tool implementation."""
@@ -40,6 +58,7 @@ class TestGetOrchestratorHealth:
             "version",
             "uptime_seconds",
             "connected_agents",
+            "total_registered_agents",
             "active_workflows",
             "data_dir",
             "timestamp",
@@ -79,3 +98,82 @@ class TestGetOrchestratorHealth:
     def test_active_workflows_is_zero(self, test_config) -> None:  # type: ignore[no-untyped-def]
         result = _get_orchestrator_health()
         assert result["active_workflows"] == 0
+
+    def test_total_registered_agents(self, test_config) -> None:  # type: ignore[no-untyped-def]
+        """Health check should report the total number of registered agents."""
+        result = _get_orchestrator_health()
+        assert result["total_registered_agents"] == 6
+
+
+class TestGetAgentRegistry:
+    """Tests for the get_agent_registry MCP tool."""
+
+    def test_list_all_agents(self, test_config) -> None:  # type: ignore[no-untyped-def]
+        result = _get_agent_registry()
+        assert result["count"] == 6
+        assert result["total_registered"] == 6
+        assert len(result["agents"]) == 6
+
+    def test_filter_by_domain(self, test_config) -> None:  # type: ignore[no-untyped-def]
+        result = _get_agent_registry(domain="cmdb")
+        assert result["count"] == 1
+        assert result["agents"][0]["agent_id"] == "cmdb-agent"
+        assert result["filters_applied"]["domain"] == "cmdb"
+
+    def test_filter_by_status(self, test_config) -> None:  # type: ignore[no-untyped-def]
+        result = _get_agent_registry(status="offline")
+        assert result["count"] == 6
+
+    def test_filter_by_capability(self, test_config) -> None:  # type: ignore[no-untyped-def]
+        result = _get_agent_registry(capability="query_cis")
+        assert result["count"] == 1
+        assert result["agents"][0]["agent_id"] == "cmdb-agent"
+
+    def test_invalid_domain_returns_error(self, test_config) -> None:  # type: ignore[no-untyped-def]
+        result = _get_agent_registry(domain="invalid_domain")
+        assert "error" in result
+        assert result["agents"] == []
+
+    def test_invalid_status_returns_error(self, test_config) -> None:  # type: ignore[no-untyped-def]
+        result = _get_agent_registry(status="invalid_status")
+        assert "error" in result
+        assert result["agents"] == []
+
+    def test_agent_has_expected_fields(self, test_config) -> None:  # type: ignore[no-untyped-def]
+        result = _get_agent_registry()
+        agent = result["agents"][0]
+        expected_keys = {
+            "agent_id",
+            "name",
+            "domain",
+            "status",
+            "capabilities",
+            "capability_count",
+            "registered_at",
+            "last_health_check",
+        }
+        assert expected_keys.issubset(set(agent.keys()))
+
+
+class TestGetAgentDetails:
+    """Tests for the get_agent_details MCP tool."""
+
+    def test_get_existing_agent(self, test_config) -> None:  # type: ignore[no-untyped-def]
+        result = _get_agent_details("cmdb-agent")
+        assert result["agent_id"] == "cmdb-agent"
+        assert result["domain"] == "cmdb"
+        assert result["capability_count"] == 5
+        assert len(result["capabilities"]) == 5
+        assert "description" in result
+
+    def test_get_nonexistent_agent(self, test_config) -> None:  # type: ignore[no-untyped-def]
+        result = _get_agent_details("nonexistent-agent")
+        assert "error" in result
+        assert "available_agents" in result
+
+    def test_capabilities_have_detail(self, test_config) -> None:  # type: ignore[no-untyped-def]
+        result = _get_agent_details("cmdb-agent")
+        cap = result["capabilities"][0]
+        assert "name" in cap
+        assert "domain" in cap
+        assert "description" in cap

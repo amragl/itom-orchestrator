@@ -56,11 +56,14 @@ def _reset_global_singletons() -> Generator[None, None, None]:
     """
     import itom_orchestrator.config as config_mod
     import itom_orchestrator.persistence as persistence_mod
+    import itom_orchestrator.server as server_mod
 
     config_mod._config = None
     persistence_mod._persistence = None
+    server_mod._registry_instance = None
 
     yield
 
     config_mod._config = None
     persistence_mod._persistence = None
+    server_mod._registry_instance = None
