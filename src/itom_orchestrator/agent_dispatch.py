@@ -164,6 +164,33 @@ def _format_dict_value(v: Any) -> str:
     return str(v)
 
 
+def _to_chat_markdown(lines: list[str]) -> str:
+    """Join formatter lines into markdown suitable for react-markdown.
+
+    Converts indented plain-text lines to proper markdown structure:
+    - Empty strings → paragraph breaks (blank line)
+    - Lines starting with ``  - `` → ``- `` list items (de-indent)
+    - Lines with 4+ leading spaces → ``  - `` nested list items
+    - Lines with 2 leading spaces → ``- `` list items
+    - Everything else → as-is
+    """
+    out: list[str] = []
+    for line in lines:
+        if not line:
+            out.append("")
+        elif line.startswith("  - "):
+            out.append("- " + line[4:])
+        elif line.startswith("       "):
+            out.append("  - " + line.strip())
+        elif line.startswith("    "):
+            out.append("  - " + line.strip())
+        elif line.startswith("  "):
+            out.append("- " + line[2:])
+        else:
+            out.append(line)
+    return "\n".join(out)
+
+
 def _format_cmdb_response(tool_name: str, raw_text: str) -> str:
     """Format raw CMDB tool JSON into a human-readable chat response."""
     try:
@@ -200,7 +227,7 @@ def _format_cmdb_response(tool_name: str, raw_text: str) -> str:
                 lines.append(f"       Size: {check.get('size', 0)} entries, TTL: {check.get('ttl_seconds', 0)}s")
             elif name == "session_pool":
                 lines.append(f"       Connections: {check.get('pool_connections', 'N/A')}, Max: {check.get('pool_maxsize', 'N/A')}")
-        return "\n".join(lines)
+        return _to_chat_markdown(lines)
 
     if tool_name == "get_cmdb_health_metrics":
         ci_type = data.get("ci_type", "all")
@@ -290,7 +317,7 @@ def _format_cmdb_response(tool_name: str, raw_text: str) -> str:
                 else:
                     lines.append(f"  - {issue}")
 
-        return "\n".join(lines)
+        return _to_chat_markdown(lines)
 
     if tool_name == "get_operational_dashboard":
         lines = ["**CMDB Operational Dashboard**", ""]
@@ -322,7 +349,7 @@ def _format_cmdb_response(tool_name: str, raw_text: str) -> str:
                 else:
                     lines.append(f"  {values}")
                 lines.append("")
-        return "\n".join(lines)
+        return _to_chat_markdown(lines)
 
     if tool_name == "get_audit_summary":
         lines = ["**CMDB Audit Summary**", ""]
@@ -335,7 +362,7 @@ def _format_cmdb_response(tool_name: str, raw_text: str) -> str:
                     lines.append("")
                 else:
                     lines.append(f"  {k.replace('_', ' ').title()}: {v}")
-        return "\n".join(lines)
+        return _to_chat_markdown(lines)
 
     if tool_name == "search_configuration_items":
         if isinstance(data, dict):
@@ -370,7 +397,7 @@ def _format_cmdb_response(tool_name: str, raw_text: str) -> str:
                 lines.append(line)
         if isinstance(total, int) and total > 15:
             lines.append(f"\n  ... and {total - 15} more")
-        return "\n".join(lines)
+        return _to_chat_markdown(lines)
 
     if tool_name == "find_stale_configuration_items":
         if isinstance(data, dict):
@@ -395,7 +422,7 @@ def _format_cmdb_response(tool_name: str, raw_text: str) -> str:
                 lines.append(f"  {i}. {name}{detail}")
         if isinstance(total, int) and total > 10:
             lines.append(f"\n  ... and {total - 10} more")
-        return "\n".join(lines)
+        return _to_chat_markdown(lines)
 
     if tool_name == "find_duplicate_configuration_items":
         if isinstance(data, dict):
@@ -416,7 +443,7 @@ def _format_cmdb_response(tool_name: str, raw_text: str) -> str:
                 lines.append(f"  {i}. {name}")
         if isinstance(total, int) and total > 10:
             lines.append(f"\n  ... and {total - 10} more groups")
-        return "\n".join(lines)
+        return _to_chat_markdown(lines)
 
     if tool_name == "run_compliance_check":
         lines = ["**CMDB Compliance Check**", ""]
@@ -434,7 +461,7 @@ def _format_cmdb_response(tool_name: str, raw_text: str) -> str:
                     lines.append(f"\n  **{k.replace('_', ' ').title()}**: {len(v)} items")
                 else:
                     lines.append(f"  {k.replace('_', ' ').title()}: {v}")
-        return "\n".join(lines)
+        return _to_chat_markdown(lines)
 
     if tool_name == "get_cmdb_health_trend_report":
         lines = ["**CMDB Health Trend Report**", ""]
@@ -453,7 +480,7 @@ def _format_cmdb_response(tool_name: str, raw_text: str) -> str:
             if isinstance(trends, dict):
                 for k, v in trends.items():
                     lines.append(f"  {k.replace('_', ' ').title()}: {_format_dict_value(v)}")
-        return "\n".join(lines)
+        return _to_chat_markdown(lines)
 
     if tool_name == "reconcile_cmdb_configuration_data":
         lines = ["**CMDB Data Reconciliation**", ""]
@@ -471,7 +498,7 @@ def _format_cmdb_response(tool_name: str, raw_text: str) -> str:
                             if isinstance(item, dict):
                                 lines.append(f"    - {item.get('name', item.get('sys_id', str(item)))}")
                     lines.append("")
-        return "\n".join(lines)
+        return _to_chat_markdown(lines)
 
     if tool_name == "query_ci_dependency_tree":
         lines = ["**CI Dependency Tree**", ""]
@@ -490,7 +517,7 @@ def _format_cmdb_response(tool_name: str, raw_text: str) -> str:
                         lines.append(f"  {indent}{'└─' if depth else '├─'} {name} ({rel})")
             total = data.get("total_nodes", len(tree) if isinstance(tree, list) else 0)
             lines.append(f"\n  Total nodes: {total}")
-        return "\n".join(lines)
+        return _to_chat_markdown(lines)
 
     if tool_name == "analyze_configuration_item_impact":
         lines = ["**CI Impact Analysis**", ""]
@@ -509,7 +536,7 @@ def _format_cmdb_response(tool_name: str, raw_text: str) -> str:
                         name = item.get("name", "unknown")
                         svc = item.get("sys_class_name", "")
                         lines.append(f"    - {name} ({svc})" if svc else f"    - {name}")
-        return "\n".join(lines)
+        return _to_chat_markdown(lines)
 
     if tool_name == "get_configuration_item_history":
         lines = ["**CI Change History**", ""]
@@ -533,7 +560,7 @@ def _format_cmdb_response(tool_name: str, raw_text: str) -> str:
                         if user:
                             line += f" (by {user})"
                         lines.append(line)
-        return "\n".join(lines)
+        return _to_chat_markdown(lines)
 
     if tool_name == "list_ci_types":
         lines = ["**Available CI Types**", ""]
@@ -551,7 +578,7 @@ def _format_cmdb_response(tool_name: str, raw_text: str) -> str:
                     lines.append(f"  **{item.get('name', item.get('type', str(item)))}**")
                 else:
                     lines.append(f"  **{item}**")
-        return "\n".join(lines)
+        return _to_chat_markdown(lines)
 
     if tool_name == "list_relationship_types_available":
         lines = ["**Available Relationship Types**", ""]
@@ -568,7 +595,7 @@ def _format_cmdb_response(tool_name: str, raw_text: str) -> str:
             elif isinstance(rel_types, dict):
                 for name, info in rel_types.items():
                     lines.append(f"  - **{name}**: {_format_dict_value(info)}")
-        return "\n".join(lines)
+        return _to_chat_markdown(lines)
 
     if tool_name in ("list_ci_classes_with_ire", "get_ire_rules_for_class"):
         title = "CI Classes with IRE" if "list" in tool_name else "IRE Rules"
@@ -583,7 +610,7 @@ def _format_cmdb_response(tool_name: str, raw_text: str) -> str:
                     lines.append(f"  - {name}")
                 else:
                     lines.append(f"  - {item}")
-        return "\n".join(lines)
+        return _to_chat_markdown(lines)
 
     if tool_name in ("query_audit_log", "get_ci_activity_log"):
         title = "Audit Log" if "audit" in tool_name else "CI Activity Log"
@@ -604,7 +631,7 @@ def _format_cmdb_response(tool_name: str, raw_text: str) -> str:
         elif isinstance(data, dict):
             for k, v in data.items():
                 lines.append(f"  {k.replace('_', ' ').title()}: {_format_dict_value(v)}")
-        return "\n".join(lines)
+        return _to_chat_markdown(lines)
 
     # Generic fallback: format JSON keys as a readable summary
     if isinstance(data, dict):
@@ -624,7 +651,7 @@ def _format_cmdb_response(tool_name: str, raw_text: str) -> str:
                         lines.append(f"    - {item}")
             else:
                 lines.append(f"  {label}: {_format_dict_value(v)}")
-        return "\n".join(lines)
+        return _to_chat_markdown(lines)
 
     return raw_text
 
