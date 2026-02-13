@@ -64,12 +64,13 @@ def _call_mcp_tool_sync(server_url: str, tool_name: str, arguments: dict[str, An
 
 
 # CI type keywords used to infer the CI class from a natural language message.
+# Include plural forms for whole-word matching.
 _CI_TYPE_KEYWORDS: dict[str, list[str]] = {
-    "server": ["server", "linux", "windows", "host", "vm", "virtual machine"],
-    "database": ["database", "db", "oracle", "mysql", "postgres", "sql"],
-    "application": ["application", "app", "service", "web app"],
-    "network_gear": ["network", "switch", "router", "firewall", "load balancer"],
-    "storage": ["storage", "san", "nas", "disk", "volume"],
+    "server": ["server", "servers", "linux", "windows", "host", "hosts", "vm", "vms", "virtual machine"],
+    "database": ["database", "databases", "db", "dbs", "oracle", "mysql", "postgres", "sql"],
+    "application": ["application", "applications", "app", "apps", "service", "services", "web app"],
+    "network_gear": ["network", "switch", "switches", "router", "routers", "firewall", "firewalls", "load balancer"],
+    "storage": ["storage", "san", "nas", "disk", "disks", "volume", "volumes"],
 }
 
 
@@ -77,11 +78,21 @@ def _infer_ci_type(message_lower: str) -> str | None:
     """Infer the CI type from a chat message.
 
     Scans the lowercased message for keywords associated with each CI type.
+    Uses word-boundary matching to avoid false positives (e.g. "db" in "cmdb").
     Returns the first match, or None to search across all types.
     """
+    import re
+
+    words = set(re.findall(r"\b\w+\b", message_lower))
     for ci_type, keywords in _CI_TYPE_KEYWORDS.items():
-        if any(kw in message_lower for kw in keywords):
-            return ci_type
+        for kw in keywords:
+            # Multi-word keywords: check substring match
+            if " " in kw:
+                if kw in message_lower:
+                    return ci_type
+            # Single-word keywords: check whole-word match
+            elif kw in words:
+                return ci_type
     return None
 
 
@@ -163,6 +174,96 @@ def _format_cmdb_response(tool_name: str, raw_text: str) -> str:
                 lines.append(f"       Size: {check.get('size', 0)} entries, TTL: {check.get('ttl_seconds', 0)}s")
             elif name == "session_pool":
                 lines.append(f"       Connections: {check.get('pool_connections', 'N/A')}, Max: {check.get('pool_maxsize', 'N/A')}")
+        return "\n".join(lines)
+
+    if tool_name == "get_cmdb_health_metrics":
+        ci_type = data.get("ci_type", "all")
+        summary = data.get("summary", {})
+        score = summary.get("overall_health_score", "N/A")
+        inventory = data.get("inventory_kpis", {})
+        quality = data.get("data_quality_kpis", {})
+        discovery = data.get("discovery_kpis", {})
+        relationships = data.get("relationship_kpis", {})
+        lifecycle = data.get("lifecycle_kpis", {})
+
+        lines = [f"**CMDB Health Report — {ci_type}s**", ""]
+
+        # Overall score
+        grade = quality.get("grade", "N/A")
+        lines.append(f"  Health Score: **{score}/100** (Data Quality Grade: **{grade}**)")
+        lines.append("")
+
+        # Inventory
+        total = inventory.get("total_count", 0)
+        by_env = inventory.get("by_environment", {})
+        virt = inventory.get("virtual_vs_physical", {})
+        lines.append(f"**Inventory** ({total} total)")
+        if by_env:
+            env_parts = [f"{env}: {count}" for env, count in by_env.items() if env != "Unknown"]
+            if env_parts:
+                lines.append(f"  Environment: {', '.join(env_parts)}")
+        if virt:
+            lines.append(f"  Virtual: {virt.get('virtual', 0)}, Physical: {virt.get('physical', 0)}")
+        created = inventory.get("created_last_30_days", 0)
+        if created:
+            lines.append(f"  Created last 30 days: {created}")
+        lines.append("")
+
+        # Data Quality
+        completeness = quality.get("completeness_score", 0)
+        complete = quality.get("complete_count", 0)
+        incomplete = quality.get("incomplete_count", 0)
+        lines.append(f"**Data Quality** ({completeness:.0f}% complete)")
+        lines.append(f"  Complete: {complete}, Incomplete: {incomplete}")
+        for field_key in ("missing_serial_number", "missing_os", "missing_owner"):
+            field_data = quality.get(field_key, {})
+            if isinstance(field_data, dict) and field_data.get("count", 0) > 0:
+                label = field_key.replace("missing_", "Missing ").replace("_", " ")
+                lines.append(f"  {label}: {field_data['count']}")
+        lines.append("")
+
+        # Discovery
+        coverage = discovery.get("discovery_coverage_percent", 0)
+        never = discovery.get("never_discovered", {})
+        never_count = never.get("count", 0) if isinstance(never, dict) else never
+        stale_90 = discovery.get("stale_90_plus_days", {})
+        stale_90_count = stale_90.get("count", 0) if isinstance(stale_90, dict) else stale_90
+        lines.append(f"**Discovery** ({coverage:.0f}% coverage)")
+        if never_count:
+            lines.append(f"  Never discovered: {never_count}")
+        if stale_90_count:
+            lines.append(f"  Stale 90+ days: {stale_90_count}")
+        by_source = discovery.get("by_source", {})
+        if by_source:
+            src_parts = [f"{src}: {cnt}" for src, cnt in by_source.items() if src != "Unknown"]
+            if src_parts:
+                lines.append(f"  Sources: {', '.join(src_parts)}")
+        lines.append("")
+
+        # Relationships
+        orphans = relationships.get("orphan_cis", {})
+        orphan_count = orphans.get("count", 0) if isinstance(orphans, dict) else orphans
+        biz_svc = relationships.get("mapped_to_business_service_percent", 0)
+        avg_rels = relationships.get("avg_relationships_per_ci", 0)
+        lines.append(f"**Relationships** (avg {avg_rels:.1f} per CI)")
+        lines.append(f"  Mapped to business service: {biz_svc:.0f}%")
+        if orphan_count:
+            lines.append(f"  Orphan CIs (no relationships): {orphan_count}")
+        lines.append("")
+
+        # Priority issues from summary
+        issues = summary.get("priority_issues", [])
+        if issues:
+            lines.append("**Priority Issues**")
+            for issue in issues[:5]:
+                if isinstance(issue, dict):
+                    text = issue.get("issue", str(issue))
+                    impact = issue.get("impact", "")
+                    impact_tag = f" [{impact.upper()}]" if impact else ""
+                    lines.append(f"  - {text}{impact_tag}")
+                else:
+                    lines.append(f"  - {issue}")
+
         return "\n".join(lines)
 
     if tool_name == "get_operational_dashboard":
@@ -339,8 +440,13 @@ def _make_cmdb_handler(server_url: str) -> Any:
         # --- Specific tool commands (highest priority) ---
         if any(kw in message_lower for kw in ["dashboard", "metrics", "overview"]):
             tool_name = "get_operational_dashboard"
-        elif any(kw in message_lower for kw in ["health check", "server health"]):
+        elif any(kw in message_lower for kw in ["health check", "server health", "mcp health"]):
             tool_name = "check_server_health"
+        elif any(kw in message_lower for kw in ["cmdb health", "cmdb metrics", "data quality", "health metric",
+                                                  "health score", "completeness", "discovery coverage"]):
+            tool_name = "get_cmdb_health_metrics"
+            ci_type = _infer_ci_type(message_lower) or "server"
+            arguments = {"ci_type": ci_type}
         elif any(kw in message_lower for kw in ["compliance"]):
             tool_name = "run_compliance_check"
         elif any(kw in message_lower for kw in ["audit", "quality"]):
@@ -365,7 +471,9 @@ def _make_cmdb_handler(server_url: str) -> Any:
             arguments = {"ci_type": ci_type, "limit": 1}
             arguments["_count_only"] = True
         elif any(kw in message_lower for kw in ["health", "status"]):
-            tool_name = "check_server_health"
+            tool_name = "get_cmdb_health_metrics"
+            ci_type = _infer_ci_type(message_lower) or "server"
+            arguments = {"ci_type": ci_type}
 
         # --- Generic search (lowest priority, fallback) ---
         if tool_name is None:
