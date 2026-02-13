@@ -1,1 +1,25 @@
-{}
+{
+  "last_build": "2026-02-13T09:30:00Z",
+  "status": "in-progress",
+  "timestamp": "2026-02-13T09:30:00Z",
+  "agent": "build",
+  "ticket_id": "ORCH-001",
+  "ticket": {
+    "id": "ORCH-001",
+    "github_issue": 2,
+    "title": "Project structure and Python package scaffold"
+  },
+  "branch": null,
+  "pr_number": null,
+  "pr_url": null,
+  "commits": 0,
+  "files_changed": [],
+  "self_check": {
+    "compiles": null,
+    "meets_criteria": null,
+    "no_mocks": null,
+    "no_placeholders": null
+  },
+  "error": null,
+  "history": []
+}
