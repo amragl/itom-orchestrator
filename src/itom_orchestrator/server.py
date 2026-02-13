@@ -11,6 +11,7 @@ Registered tools:
 - get_agent_status -- health check and status for a specific agent
 - check_all_agents -- bulk health check across all registered agents
 - route_task -- route a task to the appropriate agent via domain/capability matching
+- get_execution_history -- retrieve task execution history with optional filtering
 """
 
 import logging
@@ -36,6 +37,7 @@ _server_start_time: float = time.monotonic()
 _registry_instance: Any = None
 _health_checker_instance: Any = None
 _router_instance: Any = None
+_executor_instance: Any = None
 
 
 def _get_registry() -> Any:
@@ -89,12 +91,30 @@ def _get_router() -> Any:
     return _router_instance
 
 
+def _get_executor() -> Any:
+    """Get or create the TaskExecutor singleton.
+
+    Uses lazy initialization. The executor is created on first access,
+    using the router and persistence singletons.
+    """
+    global _executor_instance
+    if _executor_instance is None:
+        from itom_orchestrator.executor import TaskExecutor
+        from itom_orchestrator.persistence import get_persistence
+
+        router = _get_router()
+        persistence = get_persistence()
+        _executor_instance = TaskExecutor(router=router, persistence=persistence)
+    return _executor_instance
+
+
 def reset_registry() -> None:
-    """Reset the registry, health checker, and router singletons. For use in tests."""
-    global _registry_instance, _health_checker_instance, _router_instance
+    """Reset all singletons. For use in tests."""
+    global _registry_instance, _health_checker_instance, _router_instance, _executor_instance
     _registry_instance = None
     _health_checker_instance = None
     _router_instance = None
+    _executor_instance = None
 
 
 def _get_orchestrator_health() -> dict[str, Any]:
@@ -435,6 +455,47 @@ def _route_task(
     return result
 
 
+def _get_execution_history(
+    task_id: str | None = None,
+    limit: int = 50,
+) -> dict[str, Any]:
+    """Retrieve task execution history with optional filtering.
+
+    Args:
+        task_id: If provided, filter history to this task only.
+        limit: Maximum number of records to return (default 50, most recent first).
+
+    Returns:
+        Dictionary with execution records, statistics, and active tasks.
+    """
+    executor = _get_executor()
+
+    records = executor.get_execution_history(task_id=task_id, limit=limit)
+    stats = executor.get_execution_stats()
+    active = executor.get_active_tasks()
+
+    result: dict[str, Any] = {
+        "records": records,
+        "record_count": len(records),
+        "stats": stats,
+        "active_tasks": active,
+        "filters": {"task_id": task_id, "limit": limit},
+        "timestamp": datetime.now(UTC).isoformat(),
+    }
+
+    logger.info(
+        "Execution history queried",
+        extra={
+            "extra_data": {
+                "record_count": len(records),
+                "task_id_filter": task_id,
+            }
+        },
+    )
+
+    return result
+
+
 # Register MCP tools
 get_orchestrator_health = mcp.tool()(_get_orchestrator_health)
 get_agent_registry = mcp.tool()(_get_agent_registry)
@@ -442,3 +503,4 @@ get_agent_details = mcp.tool()(_get_agent_details)
 get_agent_status = mcp.tool()(_get_agent_status)
 check_all_agents = mcp.tool()(_check_all_agents)
 route_task = mcp.tool()(_route_task)
+get_execution_history = mcp.tool()(_get_execution_history)
