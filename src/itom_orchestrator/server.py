@@ -10,6 +10,7 @@ Registered tools:
 - get_agent_details -- get detailed info for a specific agent by ID
 - get_agent_status -- health check and status for a specific agent
 - check_all_agents -- bulk health check across all registered agents
+- route_task -- route a task to the appropriate agent via domain/capability matching
 """
 
 import logging
@@ -34,6 +35,7 @@ _server_start_time: float = time.monotonic()
 # Lazy-initialized singleton references.
 _registry_instance: Any = None
 _health_checker_instance: Any = None
+_router_instance: Any = None
 
 
 def _get_registry() -> Any:
@@ -72,11 +74,27 @@ def _get_health_checker() -> Any:
     return _health_checker_instance
 
 
+def _get_router() -> Any:
+    """Get or create the TaskRouter singleton.
+
+    Uses lazy initialization. The router is created on first access,
+    using the registry singleton for agent lookups.
+    """
+    global _router_instance
+    if _router_instance is None:
+        from itom_orchestrator.router import TaskRouter
+
+        registry = _get_registry()
+        _router_instance = TaskRouter(registry=registry)
+    return _router_instance
+
+
 def reset_registry() -> None:
-    """Reset the registry and health checker singletons. For use in tests."""
-    global _registry_instance, _health_checker_instance
+    """Reset the registry, health checker, and router singletons. For use in tests."""
+    global _registry_instance, _health_checker_instance, _router_instance
     _registry_instance = None
     _health_checker_instance = None
+    _router_instance = None
 
 
 def _get_orchestrator_health() -> dict[str, Any]:
@@ -313,9 +331,114 @@ def _check_all_agents(force_check: bool = False) -> dict[str, Any]:
     }
 
 
+def _route_task(
+    task_id: str,
+    title: str,
+    description: str,
+    domain: str | None = None,
+    target_agent: str | None = None,
+    priority: str = "medium",
+    parameters: dict[str, Any] | None = None,
+    timeout_seconds: float = 300.0,
+) -> dict[str, Any]:
+    """Route a task to the most appropriate ITOM agent.
+
+    Evaluates the task against routing criteria and selects the best
+    available agent. Does NOT execute the task -- just determines where
+    it should go.
+
+    Args:
+        task_id: Unique identifier for the task.
+        title: Short task title (used for keyword-based routing).
+        description: Detailed task description.
+        domain: Optional domain hint (cmdb, discovery, asset, csa, audit, documentation).
+        target_agent: Optional explicit agent ID (bypasses routing).
+        priority: Task priority (critical, high, medium, low).
+        parameters: Optional input parameters for the task.
+        timeout_seconds: Maximum execution time in seconds.
+
+    Returns:
+        Dictionary with routing decision, selected agent info, and task status.
+    """
+    from itom_orchestrator.models.agents import AgentDomain as AD
+    from itom_orchestrator.models.tasks import Task, TaskPriority, TaskStatus
+    from itom_orchestrator.router import RoutingError
+
+    # Parse domain if provided
+    parsed_domain = None
+    if domain:
+        try:
+            parsed_domain = AD(domain)
+        except ValueError:
+            return {
+                "error": f"Invalid domain '{domain}'. Valid domains: {[d.value for d in AD]}",
+                "task_id": task_id,
+                "status": "error",
+            }
+
+    # Parse priority
+    try:
+        parsed_priority = TaskPriority(priority)
+    except ValueError:
+        return {
+            "error": f"Invalid priority '{priority}'. Valid: {[p.value for p in TaskPriority]}",
+            "task_id": task_id,
+            "status": "error",
+        }
+
+    # Create the task model
+    task = Task(
+        task_id=task_id,
+        title=title,
+        description=description,
+        domain=parsed_domain,
+        target_agent=target_agent,
+        priority=parsed_priority,
+        status=TaskStatus.PENDING,
+        parameters=parameters or {},
+        created_at=datetime.now(UTC),
+        timeout_seconds=timeout_seconds,
+    )
+
+    # Route the task
+    router = _get_router()
+    try:
+        decision = router.route(task)
+    except RoutingError as exc:
+        return {
+            "error": exc.message,
+            "error_code": exc.error_code,
+            "task_id": task_id,
+            "status": "error",
+        }
+
+    result: dict[str, Any] = {
+        "task_id": task_id,
+        "status": "routed",
+        "routing_decision": decision.to_dict(),
+        "task": {
+            "task_id": task.task_id,
+            "title": task.title,
+            "domain": task.domain.value if task.domain else None,
+            "priority": task.priority.value,
+            "target_agent": task.target_agent,
+            "timeout_seconds": task.timeout_seconds,
+        },
+        "timestamp": datetime.now(UTC).isoformat(),
+    }
+
+    logger.info(
+        "Task routed via MCP",
+        extra={"extra_data": {"task_id": task_id, "agent_id": decision.agent.agent_id}},
+    )
+
+    return result
+
+
 # Register MCP tools
 get_orchestrator_health = mcp.tool()(_get_orchestrator_health)
 get_agent_registry = mcp.tool()(_get_agent_registry)
 get_agent_details = mcp.tool()(_get_agent_details)
 get_agent_status = mcp.tool()(_get_agent_status)
 check_all_agents = mcp.tool()(_check_all_agents)
+route_task = mcp.tool()(_route_task)

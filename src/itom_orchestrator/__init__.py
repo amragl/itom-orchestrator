@@ -15,6 +15,7 @@ from itom_orchestrator.logging_config import get_structured_logger, setup_loggin
 from itom_orchestrator.persistence import StatePersistence, get_persistence, reset_persistence
 from itom_orchestrator.registry import AgentRegistry
 from itom_orchestrator.http_server import create_app
+from itom_orchestrator.router import TaskRouter
 from itom_orchestrator.server import mcp
 
 __all__ = [
@@ -34,6 +35,8 @@ __all__ = [
     "AgentHealthChecker",
     # Agent config
     "AgentConfigLoader",
+    # Router
+    "TaskRouter",
     # MCP server
     "mcp",
     # HTTP server

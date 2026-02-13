@@ -63,6 +63,7 @@ def _reset_global_singletons() -> Generator[None, None, None]:
     persistence_mod._persistence = None
     server_mod._registry_instance = None
     server_mod._health_checker_instance = None
+    server_mod._router_instance = None
     http_server_mod._registry_instance = None
     http_server_mod._health_checker_instance = None
 
@@ -72,5 +73,6 @@ def _reset_global_singletons() -> Generator[None, None, None]:
     persistence_mod._persistence = None
     server_mod._registry_instance = None
     server_mod._health_checker_instance = None
+    server_mod._router_instance = None
     http_server_mod._registry_instance = None
     http_server_mod._health_checker_instance = None
