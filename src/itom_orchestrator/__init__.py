@@ -9,6 +9,7 @@ __version__ = "0.1.0"
 __author__ = "Cesar Garcia Lopez"
 
 from itom_orchestrator.config import OrchestratorConfig, get_config
+from itom_orchestrator.health import AgentHealthChecker
 from itom_orchestrator.logging_config import get_structured_logger, setup_logging
 from itom_orchestrator.persistence import StatePersistence, get_persistence, reset_persistence
 from itom_orchestrator.registry import AgentRegistry
@@ -27,6 +28,8 @@ __all__ = [
     "reset_persistence",
     # Registry
     "AgentRegistry",
+    # Health
+    "AgentHealthChecker",
     # MCP server
     "mcp",
 ]

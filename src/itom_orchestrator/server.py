@@ -8,6 +8,8 @@ Registered tools:
 - get_orchestrator_health -- server health and uptime information
 - get_agent_registry -- list all registered agents and their capabilities
 - get_agent_details -- get detailed info for a specific agent by ID
+- get_agent_status -- health check and status for a specific agent
+- check_all_agents -- bulk health check across all registered agents
 """
 
 import logging
@@ -29,8 +31,9 @@ logger: logging.LoggerAdapter[Any] = get_structured_logger(__name__)
 # Captured at module load time -- used to compute uptime in health checks.
 _server_start_time: float = time.monotonic()
 
-# Lazy-initialized registry reference.
+# Lazy-initialized singleton references.
 _registry_instance: Any = None
+_health_checker_instance: Any = None
 
 
 def _get_registry() -> Any:
@@ -50,10 +53,30 @@ def _get_registry() -> Any:
     return _registry_instance
 
 
+def _get_health_checker() -> Any:
+    """Get or create the AgentHealthChecker singleton.
+
+    Uses lazy initialization. The health checker is created on first access,
+    using the registry and persistence singletons.
+    """
+    global _health_checker_instance
+    if _health_checker_instance is None:
+        from itom_orchestrator.health import AgentHealthChecker
+        from itom_orchestrator.persistence import get_persistence
+
+        registry = _get_registry()
+        persistence = get_persistence()
+        _health_checker_instance = AgentHealthChecker(
+            registry=registry, persistence=persistence
+        )
+    return _health_checker_instance
+
+
 def reset_registry() -> None:
-    """Reset the registry singleton. For use in tests."""
-    global _registry_instance
+    """Reset the registry and health checker singletons. For use in tests."""
+    global _registry_instance, _health_checker_instance
     _registry_instance = None
+    _health_checker_instance = None
 
 
 def _get_orchestrator_health() -> dict[str, Any]:
@@ -235,7 +258,64 @@ def _get_agent_details(agent_id: str) -> dict[str, Any]:
     return result
 
 
+def _get_agent_status(agent_id: str, force_check: bool = False) -> dict[str, Any]:
+    """Get health status for a specific agent, optionally forcing a fresh check.
+
+    Args:
+        agent_id: The unique identifier of the agent.
+        force_check: If True, bypass cache and perform a fresh health check.
+
+    Returns:
+        Dictionary with agent health status, latest check result, and stats.
+    """
+    health_checker = _get_health_checker()
+
+    try:
+        # Perform the check (may use cache unless forced)
+        record = health_checker.check_agent(agent_id, force=force_check)
+
+        # Get comprehensive health info
+        health_info = health_checker.get_agent_health(agent_id)
+        health_info["latest_check_result"] = record.to_dict()
+
+        return health_info
+
+    except Exception as exc:
+        return {
+            "error": str(exc),
+            "agent_id": agent_id,
+            "timestamp": datetime.now(UTC).isoformat(),
+        }
+
+
+def _check_all_agents(force_check: bool = False) -> dict[str, Any]:
+    """Run health checks on all registered agents.
+
+    Args:
+        force_check: If True, bypass cache for all agents.
+
+    Returns:
+        Dictionary with per-agent results and aggregate summary.
+    """
+    health_checker = _get_health_checker()
+    results = health_checker.check_all(force=force_check)
+
+    agent_results = [r.to_dict() for r in results]
+
+    # Get full summary
+    summary = health_checker.get_all_health()
+
+    return {
+        "check_results": agent_results,
+        "summary": summary,
+        "force_check": force_check,
+        "timestamp": datetime.now(UTC).isoformat(),
+    }
+
+
 # Register MCP tools
 get_orchestrator_health = mcp.tool()(_get_orchestrator_health)
 get_agent_registry = mcp.tool()(_get_agent_registry)
 get_agent_details = mcp.tool()(_get_agent_details)
+get_agent_status = mcp.tool()(_get_agent_status)
+check_all_agents = mcp.tool()(_check_all_agents)
