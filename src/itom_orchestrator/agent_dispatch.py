@@ -701,7 +701,7 @@ def _make_cmdb_handler(server_url: str) -> Any:
 
         # Operational / MCP server health — only when explicitly asking
         # about the MCP server, not CMDB data health.
-        elif any(kw in message_lower for kw in ["mcp health", "server health", "mcp status"]):
+        elif "mcp" in message_lower and any(kw in message_lower for kw in ["health", "status", "check"]):
             tool_name = "check_server_health"
         elif any(kw in message_lower for kw in ["operational dashboard", "ops dashboard"]):
             tool_name = "get_operational_dashboard"
