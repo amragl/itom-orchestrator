@@ -273,7 +273,7 @@ async def post_chat(request: ChatRequest) -> ChatResponse:
                             "- **Assets** — inventory, licenses, hardware\n"
                             "- **Audit** — compliance, drift, policies\n"
                             "- **Documentation** — runbooks, architecture\n\n"
-                            "Or select a specific agent from the dropdown."
+                            "You can also type `/help` to see all available slash commands."
                         ),
                     },
                     "routing": {"method": "fallback", "reason": exc.message},
