@@ -124,11 +124,13 @@ def _extract_name_hint(message: str, ci_type: str | None) -> str | None:
     return hint if hint else None
 
 
-def _extract_identifier(message: str) -> str:
+def _extract_identifier(message: str) -> str | None:
     """Extract a CI identifier (sys_id or name) from a message.
 
     Looks for a 32-char hex string (sys_id) first, then falls back to
-    the last meaningful word/phrase in the message.
+    a short, meaningful phrase that looks like a CI name (e.g. "web-server-01").
+    Returns ``None`` when no plausible identifier is found so callers can
+    display a helpful prompt instead of sending garbage to the MCP server.
     """
     import re
 
@@ -137,17 +139,31 @@ def _extract_identifier(message: str) -> str:
     if match:
         return match.group()
 
-    # Strip common command words and return the rest as the identifier
+    # Strip common command words and see what's left.
+    # Words are compared after stripping punctuation so "change." matches "change".
     filler = {
         "show", "get", "find", "the", "of", "for", "a", "an", "me",
+        "do", "run", "can", "i", "my", "our", "please", "want", "need",
+        "what", "how", "is", "are", "would", "will", "so", "just",
         "details", "detail", "info", "about", "history", "changes",
         "to", "impact", "analysis", "dependency", "tree", "dependencies",
         "relationships", "relationship", "relations", "state", "compare",
-        "ci", "configuration", "item",
+        "ci", "configuration", "item", "full", "dry", "review", "change",
+        "across", "all", "without", "action", "plan", "validation",
+        "validate", "check", "perform", "generate", "report", "give",
+        "list", "query", "search", "look", "up", "and", "or", "but",
+        "that", "this", "it", "its", "with", "from", "on", "in", "at",
     }
     words = message.split()
-    remaining = [w for w in words if w.lower() not in filler]
-    return " ".join(remaining).strip() if remaining else message
+    remaining = [w for w in words if re.sub(r"[^\w]", "", w).lower() not in filler]
+    candidate = " ".join(remaining).strip().strip(".,!?;:\"'")
+
+    # A plausible CI identifier is short (1-4 words) and not a generic
+    # sentence fragment.  If what remains is too long or empty, give up.
+    if not candidate or len(candidate.split()) > 4:
+        return None
+
+    return candidate
 
 
 def _format_dict_value(v: Any) -> str:
@@ -758,29 +774,42 @@ def _make_cmdb_handler(server_url: str) -> Any:
             ci_type = _infer_ci_type(message_lower) or "server"
             arguments = {"ci_type": ci_type}
 
-        # Relationships & impact
+        # Relationships & impact — these require a CI identifier (sys_id or name).
+        # If no identifier is found, return a prompt asking for one.
         elif any(kw in message_lower for kw in ["dependency tree", "dependencies of"]):
-            tool_name = "query_ci_dependency_tree"
-            arguments = {"sys_id": _extract_identifier(message)}
+            _id = _extract_identifier(message)
+            if _id:
+                tool_name = "query_ci_dependency_tree"
+                arguments = {"sys_id": _id}
         elif any(kw in message_lower for kw in ["impact analysis", "impact of", "change impact"]):
-            tool_name = "analyze_configuration_item_impact"
-            arguments = {"sys_id": _extract_identifier(message), "change_type": "modify"}
+            _id = _extract_identifier(message)
+            if _id:
+                tool_name = "analyze_configuration_item_impact"
+                arguments = {"sys_id": _id, "change_type": "modify"}
         elif any(kw in message_lower for kw in ["relationship type", "relation type"]):
             tool_name = "list_relationship_types_available"
         elif any(kw in message_lower for kw in ["relationship", "relations", "upstream", "downstream"]):
-            tool_name = "query_ci_relationships"
-            arguments = {"sys_id": _extract_identifier(message)}
+            _id = _extract_identifier(message)
+            if _id:
+                tool_name = "query_ci_relationships"
+                arguments = {"sys_id": _id}
 
         # CI details & history
         elif any(kw in message_lower for kw in ["history of", "change history", "changes to"]):
-            tool_name = "get_configuration_item_history"
-            arguments = {"sys_id": _extract_identifier(message)}
+            _id = _extract_identifier(message)
+            if _id:
+                tool_name = "get_configuration_item_history"
+                arguments = {"sys_id": _id}
         elif any(kw in message_lower for kw in ["compare state", "compare ci", "state comparison"]):
-            tool_name = "compare_configuration_item_state"
-            arguments = {"sys_id": _extract_identifier(message), "timestamp": "2025-01-01"}
+            _id = _extract_identifier(message)
+            if _id:
+                tool_name = "compare_configuration_item_state"
+                arguments = {"sys_id": _id, "timestamp": "2025-01-01"}
         elif any(kw in message_lower for kw in ["detail", "info about", "show ci"]):
-            tool_name = "get_configuration_item_details"
-            arguments = {"identifier": _extract_identifier(message)}
+            _id = _extract_identifier(message)
+            if _id:
+                tool_name = "get_configuration_item_details"
+                arguments = {"identifier": _id}
 
         # IRE (Identification & Reconciliation)
         elif any(kw in message_lower for kw in ["ire rule", "identification rule"]):
@@ -814,12 +843,33 @@ def _make_cmdb_handler(server_url: str) -> Any:
             ci_type = _infer_ci_type(message_lower) or "server"
             arguments = {"ci_type": ci_type}
 
-        # --- Generic CI search (lowest priority, fallback) ---
-        # Only fires when no analytical/health keyword matched, meaning
-        # the user is likely looking for specific configuration items.
+        # --- Fallback logic ---
         if tool_name is None:
-            # Check if this looks like a CI search (has a name, type, or
-            # search-like intent) vs a general question.
+            # Check if the message contained a CI-specific keyword but no
+            # identifier was found (e.g. "show relationships" without a CI
+            # name).  Return a helpful prompt instead of calling a tool.
+            _needs_id_keywords = [
+                "relationship", "relations", "upstream", "downstream",
+                "dependency", "dependencies", "impact",
+                "history of", "change history", "changes to",
+                "compare state", "compare ci",
+                "detail", "info about", "show ci",
+            ]
+            if any(kw in message_lower for kw in _needs_id_keywords):
+                return {
+                    "agent_response": (
+                        "I need a CI name or sys_id to run that query. "
+                        "Try something like:\n\n"
+                        "- **Show relationships for web-server-01**\n"
+                        "- **History of a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6**\n"
+                        "- **Impact analysis for db-prod-03**\n\n"
+                        "Or use `/ci-search <name>` to find a CI first."
+                    ),
+                    "tool_used": None,
+                    "source": "cmdb-dispatch",
+                }
+
+            # Generic CI search — only when a CI type or name is detected.
             ci_type = _infer_ci_type(message_lower)
             name_hint = _extract_name_hint(message, ci_type)
             if ci_type or name_hint:

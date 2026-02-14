@@ -201,6 +201,9 @@ def _build_default_routing_rules() -> list[RoutingRule]:
                 "server", "database", "application", "network",
                 "infrastructure", "duplicate", "stale", "health",
                 "dashboard", "metrics", "operational",
+                "impact", "dependency", "dependencies", "compliance",
+                "ire", "reconcile", "remediate", "history of",
+                "ci type", "ci class", "data quality",
             ],
         ),
         RoutingRule(
