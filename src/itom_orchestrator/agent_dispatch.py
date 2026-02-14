@@ -681,27 +681,32 @@ def _make_cmdb_handler(server_url: str) -> Any:
 
         # --- Specific tool commands (highest priority) ---
 
-        # Operational / MCP server health
-        if any(kw in message_lower for kw in ["mcp health", "server health", "health check"]):
-            tool_name = "check_server_health"
-        elif any(kw in message_lower for kw in ["operational dashboard", "ops dashboard"]):
-            tool_name = "get_operational_dashboard"
-        elif any(kw in message_lower for kw in ["prometheus", "prom metrics"]):
-            tool_name = "get_prometheus_metrics"
-
-        # CMDB health & data quality — trend check BEFORE generic health
-        # ("trend report" contains "report" which would match "health report")
-        elif any(kw in message_lower for kw in ["health trend", "trend report", "health over time"]):
+        # CMDB health & data quality — checked FIRST because most queries
+        # that mention "health" in the CMDB context mean CMDB health, not
+        # MCP server health.  Trend check BEFORE generic health ("trend
+        # report" contains "report" which would match "health report").
+        if any(kw in message_lower for kw in ["health trend", "trend report", "health over time"]):
             tool_name = "get_cmdb_health_trend_report"
             ci_type = _infer_ci_type(message_lower)
             if ci_type:
                 arguments = {"ci_type": ci_type}
         elif any(kw in message_lower for kw in ["cmdb health", "cmdb metrics", "data quality",
                                                   "health metric", "health score", "completeness",
-                                                  "discovery coverage", "health report"]):
+                                                  "discovery coverage", "health report",
+                                                  "health check", "cmdb analysis",
+                                                  "cmdb report", "cmdb overview"]):
             tool_name = "get_cmdb_health_metrics"
             ci_type = _infer_ci_type(message_lower) or "server"
             arguments = {"ci_type": ci_type}
+
+        # Operational / MCP server health — only when explicitly asking
+        # about the MCP server, not CMDB data health.
+        elif any(kw in message_lower for kw in ["mcp health", "server health", "mcp status"]):
+            tool_name = "check_server_health"
+        elif any(kw in message_lower for kw in ["operational dashboard", "ops dashboard"]):
+            tool_name = "get_operational_dashboard"
+        elif any(kw in message_lower for kw in ["prometheus", "prom metrics"]):
+            tool_name = "get_prometheus_metrics"
         elif any(kw in message_lower for kw in ["capture snapshot", "health snapshot", "take snapshot"]):
             tool_name = "capture_cmdb_health_snapshot"
             ci_type = _infer_ci_type(message_lower)
@@ -800,20 +805,32 @@ def _make_cmdb_handler(server_url: str) -> Any:
             arguments = {"ci_type": ci_type, "limit": 1}
             arguments["_count_only"] = True
 
-        # Generic health/status fallback
-        elif any(kw in message_lower for kw in ["health", "status"]):
+        # Generic health/status/analysis fallback — broad queries that
+        # indicate the user wants an overview of CMDB data, not a CI search.
+        elif any(kw in message_lower for kw in ["health", "status", "analysis",
+                                                  "overview", "summary", "findings",
+                                                  "report", "assess", "evaluate"]):
             tool_name = "get_cmdb_health_metrics"
             ci_type = _infer_ci_type(message_lower) or "server"
             arguments = {"ci_type": ci_type}
 
-        # --- Generic search (lowest priority, fallback) ---
+        # --- Generic CI search (lowest priority, fallback) ---
+        # Only fires when no analytical/health keyword matched, meaning
+        # the user is likely looking for specific configuration items.
         if tool_name is None:
-            tool_name = "search_configuration_items"
+            # Check if this looks like a CI search (has a name, type, or
+            # search-like intent) vs a general question.
             ci_type = _infer_ci_type(message_lower)
-            arguments = {"ci_type": ci_type, "limit": 10}
             name_hint = _extract_name_hint(message, ci_type)
-            if name_hint:
-                arguments["name"] = f"*{name_hint}*"
+            if ci_type or name_hint:
+                tool_name = "search_configuration_items"
+                arguments = {"ci_type": ci_type, "limit": 10}
+                if name_hint:
+                    arguments["name"] = f"*{name_hint}*"
+            else:
+                # No CI type or name detected — show the dashboard as a
+                # helpful default instead of an empty search result.
+                tool_name = "get_operational_dashboard"
 
         # Extract internal flags before sending to MCP
         count_only = arguments.pop("_count_only", False)
