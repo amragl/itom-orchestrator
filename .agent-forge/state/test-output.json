@@ -1,1 +1,84 @@
-{}
+{
+  "status": "success",
+  "timestamp": "2026-02-16T17:05:00Z",
+  "agent": "test",
+  "ticket_id": "ORCH-010",
+  "session": "test-13",
+  "summary": "ORCH-010 test execution complete. All new tests pass. No regressions detected.",
+  "output": {
+    "results": {
+      "total": 431,
+      "passed": 431,
+      "failed": 0,
+      "skipped": 0,
+      "error": 0
+    },
+    "coverage": {
+      "overall_percent": 60.88,
+      "target_percent": 50.0,
+      "modules_above_target": 23,
+      "modules_below_target": 3
+    },
+    "execution_time": {
+      "total_seconds": 3.99,
+      "per_test_ms": 9.26,
+      "slowest_test_ms": 85
+    }
+  },
+  "test_categories": {
+    "unit": {
+      "total": 425,
+      "passed": 425,
+      "failed": 0
+    },
+    "integration": {
+      "total": 6,
+      "passed": 6,
+      "failed": 0
+    }
+  },
+  "new_tests": {
+    "count": 16,
+    "file": "tests/test_routing_rules.py",
+    "test_classes": 5,
+    "all_passed": true,
+    "test_areas": [
+      "Configuration loading",
+      "Schema validation",
+      "Error scenarios",
+      "Caching behavior",
+      "Hot-reload detection"
+    ]
+  },
+  "regressions": [],
+  "flaky_tests": [],
+  "performance_metrics": {
+    "fastest_test_ms": 1.2,
+    "slowest_test_ms": 85,
+    "average_test_ms": 9.26,
+    "tests_over_100ms": 0
+  },
+  "coverage_details": {
+    "router_py": {
+      "lines": 254,
+      "covered": 230,
+      "percent": 88
+    },
+    "test_routing_rules_py": {
+      "lines": 400,
+      "covered": 400,
+      "percent": 100
+    },
+    "server_py": {
+      "lines": 180,
+      "covered": 117,
+      "percent": 67
+    }
+  },
+  "recommendations": [
+    "All 431 tests pass with 0 failures. No regressions detected.",
+    "New routing rules tests have 100% code coverage.",
+    "Overall code coverage at 60.88%, exceeding 50% target.",
+    "ORCH-010 implementation passes all tests with excellent performance metrics."
+  ]
+}
