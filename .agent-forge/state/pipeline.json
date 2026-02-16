@@ -1,10 +1,10 @@
 {
-  "status": "completed",
+  "status": "idle",
   "current_phase": null,
   "current_ticket": null,
   "current_agent": null,
   "current_step": null,
-  "last_completed_step": "monitor",
+  "last_completed_step": null,
   "failed_step": null,
   "failure_reason": null,
   "blocked_reason": null,
