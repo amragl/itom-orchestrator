@@ -80,16 +80,55 @@ def _get_router() -> Any:
     """Get or create the TaskRouter singleton.
 
     Uses lazy initialization. The router is created on first access,
-    using the registry singleton for agent lookups.
+    using the registry singleton for agent lookups. Attempts to load
+    routing rules from routing-rules.json configuration file if available.
+    Falls back to default rules if config file is not found.
     """
     global _router_instance
     if _router_instance is None:
-        from itom_orchestrator.router import TaskRouter
+        from pathlib import Path
+        from itom_orchestrator.router import TaskRouter, RoutingRulesLoader
 
         registry = _get_registry()
+        config = get_config()
+
+        # Attempt to load routing rules from config file
+        routing_config_path = Path(config.data_dir) / "config" / "routing-rules.json"
+        rules = None
+
+        if routing_config_path.exists():
+            try:
+                loader = RoutingRulesLoader(
+                    config_path=str(routing_config_path),
+                    validate_on_load=True,
+                    cache_config=True,
+                    enable_hot_reload=True,
+                )
+                routing_config = loader.load()
+                logger.info(
+                    "Loaded routing rules configuration",
+                    extra={
+                        "extra_data": {
+                            "config_path": str(routing_config_path),
+                            "domains": len(routing_config.get("domains", {})),
+                            "rules": len(routing_config.get("routing_rules", [])),
+                        }
+                    },
+                )
+            except (FileNotFoundError, ValueError) as e:
+                logger.warning(
+                    "Failed to load routing rules config, using defaults",
+                    extra={"extra_data": {"error": str(e)}},
+                )
+        else:
+            logger.debug(
+                "Routing rules config file not found, using default rules",
+                extra={"extra_data": {"path": str(routing_config_path)}},
+            )
+
         # require_available=False until agents have real health endpoints.
         # Once MCP client connectivity is implemented, switch to True.
-        _router_instance = TaskRouter(registry=registry, require_available=False)
+        _router_instance = TaskRouter(registry=registry, rules=rules, require_available=False)
     return _router_instance
 
 
