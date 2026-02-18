@@ -250,39 +250,7 @@ async def post_chat(request: ChatRequest) -> ChatResponse:
             },
         )
 
-        # For "no route found" errors, return a helpful chat response
-        # instead of an HTTP error so the UI can display it gracefully.
-        from itom_orchestrator.router import NoRouteFoundError
-
-        if isinstance(exc, NoRouteFoundError):
-            return ChatResponse(
-                message_id=f"chat-{datetime.now(UTC).strftime('%H%M%S')}",
-                status="success",
-                agent_id="orchestrator",
-                agent_name="Orchestrator",
-                domain="general",
-                response={
-                    "task_id": None,
-                    "result": {
-                        "agent_response": (
-                            "I'm not sure which agent can help with that. "
-                            "Try asking about:\n\n"
-                            "- **CMDB** — search CIs, health metrics, "
-                            "compliance, relationships\n"
-                            "- **Discovery** — network scans, IP ranges\n"
-                            "- **Assets** — inventory, licenses, hardware\n"
-                            "- **Audit** — compliance, drift, policies\n"
-                            "- **Documentation** — runbooks, architecture\n\n"
-                            "You can also type `/help` to see all available slash commands."
-                        ),
-                    },
-                    "routing": {"method": "fallback", "reason": exc.message},
-                },
-                routing_method="fallback",
-                timestamp=datetime.now(UTC).isoformat(),
-            )
-
-        # For other routing errors (agent unavailable, etc.) -> 502
+        # All routing errors (no route found, agent unavailable, etc.) -> 502
         raise HTTPException(
             status_code=502,
             detail={

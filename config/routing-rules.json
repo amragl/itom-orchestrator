@@ -1,0 +1,268 @@
+{
+  "version": "1.0.0",
+  "description": "ITOM Orchestrator routing rules configuration. Defines domain keyword mappings, capability mappings, priority rules, and fallback behavior for task routing.",
+  "updated_at": "2026-02-16T16:00:00Z",
+  "domains": {
+    "cmdb": {
+      "id": "cmdb",
+      "name": "CMDB Operations",
+      "keywords": ["cmdb", "configuration", "asset", "ci", "computer", "server", "database"],
+      "target_agent": "cmdb-agent",
+      "priority": 1,
+      "required_capability": "cmdb_read",
+      "fallback_domain": "asset"
+    },
+    "discovery": {
+      "id": "discovery",
+      "name": "Discovery Operations",
+      "keywords": ["discovery", "scan", "probe", "network", "device", "topology"],
+      "target_agent": "discovery-agent",
+      "priority": 2,
+      "required_capability": "discovery_scan",
+      "fallback_domain": "cmdb"
+    },
+    "asset": {
+      "id": "asset",
+      "name": "Asset Management",
+      "keywords": ["asset", "inventory", "hardware", "lifecycle", "deprecation"],
+      "target_agent": "asset-agent",
+      "priority": 3,
+      "required_capability": "asset_read",
+      "fallback_domain": "cmdb"
+    },
+    "csa": {
+      "id": "csa",
+      "name": "Certification and Service Account Management",
+      "keywords": ["csa", "certification", "service", "account", "catalog", "request", "workflow"],
+      "target_agent": "csa-agent",
+      "priority": 4,
+      "required_capability": "service_catalog_read",
+      "fallback_domain": null
+    },
+    "audit": {
+      "id": "audit",
+      "name": "IT Operations Management Auditing",
+      "keywords": ["audit", "compliance", "health", "report", "governance"],
+      "target_agent": "itom-auditor",
+      "priority": 5,
+      "required_capability": "audit_read",
+      "fallback_domain": null
+    },
+    "documentation": {
+      "id": "documentation",
+      "name": "ITOM Documentation",
+      "keywords": ["documentation", "runbook", "guide", "procedure", "knowledge"],
+      "target_agent": "itom-documentator",
+      "priority": 6,
+      "required_capability": "documentation_read",
+      "fallback_domain": null
+    }
+  },
+  "capability_mappings": {
+    "cmdb_read": {
+      "domain": "cmdb",
+      "capability_name": "cmdb_read",
+      "agents": ["cmdb-agent"],
+      "requires_health_check": true,
+      "timeout_seconds": 30
+    },
+    "cmdb_write": {
+      "domain": "cmdb",
+      "capability_name": "cmdb_write",
+      "agents": ["cmdb-agent"],
+      "requires_health_check": true,
+      "requires_approval": true,
+      "timeout_seconds": 60
+    },
+    "discovery_scan": {
+      "domain": "discovery",
+      "capability_name": "discovery_scan",
+      "agents": ["discovery-agent"],
+      "requires_health_check": true,
+      "timeout_seconds": 120
+    },
+    "asset_read": {
+      "domain": "asset",
+      "capability_name": "asset_read",
+      "agents": ["asset-agent"],
+      "requires_health_check": true,
+      "timeout_seconds": 30
+    },
+    "asset_write": {
+      "domain": "asset",
+      "capability_name": "asset_write",
+      "agents": ["asset-agent"],
+      "requires_health_check": true,
+      "requires_approval": true,
+      "timeout_seconds": 60
+    },
+    "service_catalog_read": {
+      "domain": "csa",
+      "capability_name": "service_catalog_read",
+      "agents": ["csa-agent"],
+      "requires_health_check": true,
+      "timeout_seconds": 30
+    },
+    "service_catalog_write": {
+      "domain": "csa",
+      "capability_name": "service_catalog_write",
+      "agents": ["csa-agent"],
+      "requires_health_check": true,
+      "requires_approval": true,
+      "timeout_seconds": 60
+    },
+    "audit_read": {
+      "domain": "audit",
+      "capability_name": "audit_read",
+      "agents": ["itom-auditor"],
+      "requires_health_check": true,
+      "timeout_seconds": 30
+    },
+    "documentation_read": {
+      "domain": "documentation",
+      "capability_name": "documentation_read",
+      "agents": ["itom-documentator"],
+      "requires_health_check": true,
+      "timeout_seconds": 30
+    }
+  },
+  "routing_rules": [
+    {
+      "id": "rule-001",
+      "name": "CMDB Read Operations",
+      "priority": 10,
+      "domain": "cmdb",
+      "keywords": ["cmdb", "configuration", "read", "query"],
+      "target_agent": "cmdb-agent",
+      "required_capability": "cmdb_read",
+      "enabled": true
+    },
+    {
+      "id": "rule-002",
+      "name": "CMDB Write Operations",
+      "priority": 9,
+      "domain": "cmdb",
+      "keywords": ["cmdb", "create", "update", "delete", "write"],
+      "target_agent": "cmdb-agent",
+      "required_capability": "cmdb_write",
+      "enabled": true
+    },
+    {
+      "id": "rule-003",
+      "name": "Discovery Scans",
+      "priority": 20,
+      "domain": "discovery",
+      "keywords": ["discovery", "scan", "probe", "network"],
+      "target_agent": "discovery-agent",
+      "required_capability": "discovery_scan",
+      "enabled": true
+    },
+    {
+      "id": "rule-004",
+      "name": "Asset Inventory",
+      "priority": 30,
+      "domain": "asset",
+      "keywords": ["asset", "inventory", "hardware"],
+      "target_agent": "asset-agent",
+      "required_capability": "asset_read",
+      "enabled": true
+    },
+    {
+      "id": "rule-005",
+      "name": "Service Catalog Operations",
+      "priority": 40,
+      "domain": "csa",
+      "keywords": ["catalog", "request", "workflow", "service"],
+      "target_agent": "csa-agent",
+      "required_capability": "service_catalog_read",
+      "enabled": true
+    },
+    {
+      "id": "rule-006",
+      "name": "Audit and Compliance",
+      "priority": 50,
+      "domain": "audit",
+      "keywords": ["audit", "compliance", "governance"],
+      "target_agent": "itom-auditor",
+      "required_capability": "audit_read",
+      "enabled": true
+    },
+    {
+      "id": "rule-007",
+      "name": "Documentation and Runbooks",
+      "priority": 60,
+      "domain": "documentation",
+      "keywords": ["documentation", "runbook", "guide"],
+      "target_agent": "itom-documentator",
+      "required_capability": "documentation_read",
+      "enabled": true
+    }
+  ],
+  "priority_rules": [
+    {
+      "id": "priority-001",
+      "name": "Explicit Agent Targeting",
+      "order": 1,
+      "description": "If task.target_agent is specified, route directly to that agent (highest priority).",
+      "enabled": true
+    },
+    {
+      "id": "priority-002",
+      "name": "Keyword-Based Routing",
+      "order": 2,
+      "description": "Match task keywords against routing rules in priority order.",
+      "enabled": true
+    },
+    {
+      "id": "priority-003",
+      "name": "Domain-Based Routing",
+      "order": 3,
+      "description": "Route by task.domain to the mapped agent.",
+      "enabled": true
+    },
+    {
+      "id": "priority-004",
+      "name": "Capability-Based Routing",
+      "order": 4,
+      "description": "Find agents with the required capability.",
+      "enabled": true
+    },
+    {
+      "id": "priority-005",
+      "name": "Fallback Domain Routing",
+      "order": 5,
+      "description": "If primary domain fails, try fallback domain.",
+      "enabled": true
+    }
+  ],
+  "fallback_rules": {
+    "default_fallback_agent": "cmdb-agent",
+    "fallback_on_unavailable": true,
+    "unavailable_timeout_seconds": 10,
+    "max_fallback_hops": 3,
+    "fallback_chain_policy": "breadth-first"
+  },
+  "validation": {
+    "strict_mode": true,
+    "fail_on_unknown_domain": true,
+    "fail_on_unknown_agent": true,
+    "fail_on_missing_capability": true,
+    "validate_keyword_coverage": true,
+    "minimum_rules_required": 1
+  },
+  "hot_reload": {
+    "enabled": true,
+    "watch_file": true,
+    "check_interval_seconds": 5,
+    "on_change_action": "reload_and_notify_agents",
+    "backup_on_change": true,
+    "max_backups": 10
+  },
+  "metrics": {
+    "track_routing_decisions": true,
+    "track_fallback_uses": true,
+    "log_ambiguous_routes": true,
+    "log_rule_changes": true,
+    "retention_days": 30
+  }
+}

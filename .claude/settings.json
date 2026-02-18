@@ -1,0 +1,60 @@
+{
+  "hooks": {
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "rm -f .agent-forge/state/session.lock && echo '[forge] Session lock released.' || true"
+          },
+          {
+            "type": "agent",
+            "prompt": "Before stopping, verify the Agent Forge pipeline state. Read .agent-forge/state/pipeline.json. If status is 'running', check if all steps completed successfully. If any agent reported errors or if there are unresolved critical issues, warn the user that the pipeline is incomplete. Check .agent-forge/state/build-output.json for any mock data indicators (search for 'mock', 'placeholder', 'stub', 'dummy', 'hardcoded', 'TODO implement' in any recently created/modified files). If found, report them as a FAIL-STOP condition.",
+            "timeout": 60
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "INPUT=$(cat); FILE=$(echo \"$INPUT\" | jq -r '.tool_input.file_path // empty'); CONTENT=$(echo \"$INPUT\" | jq -r '.tool_input.content // empty'); if echo \"$CONTENT\" | grep -qiE '(mock_data|placeholder_function|STUB_IMPLEMENTATION|def mock_|function mock_|dummy_data|fake_response|hardcoded_secret)'; then echo \"FAIL-STOP: Mock/placeholder/stub code detected in write to $FILE. Agent Forge forbids mock implementations.\" >&2; exit 2; fi; exit 0"
+          }
+        ]
+      },
+      {
+        "matcher": "Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "INPUT=$(cat); CONTENT=$(echo \"$INPUT\" | jq -r '.tool_input.new_string // empty'); if echo \"$CONTENT\" | grep -qiE '(mock_data|placeholder_function|STUB_IMPLEMENTATION|def mock_|function mock_|dummy_data|fake_response|hardcoded_secret)'; then echo \"FAIL-STOP: Mock/placeholder/stub code detected in edit. Agent Forge forbids mock implementations.\" >&2; exit 2; fi; exit 0"
+          }
+        ]
+      },
+      {
+        "matcher": "Bash(git push:*)",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "INPUT=$(cat); COMMAND=$(echo \"$INPUT\" | jq -r '.tool_input.command // empty'); if echo \"$COMMAND\" | grep -qE 'git push.*(main|master)'; then echo \"FAIL-STOP: Direct push to main/master is forbidden. Use PRs.\" >&2; exit 2; fi; exit 0"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Bash(git commit:*)",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo 'Commit recorded. Agent Forge pipeline tracking active.' ; exit 0"
+          }
+        ]
+      }
+    ]
+  }
+}

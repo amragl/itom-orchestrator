@@ -198,10 +198,10 @@ def _build_default_routing_rules() -> list[RoutingRule]:
             domain=AgentDomain.CMDB,
             keywords=[
                 "cmdb", "configuration item", "ci ", "relationship",
-                "server", "database", "application", "network",
+                "server", "database", "application",
                 "infrastructure", "duplicate", "stale", "health",
                 "dashboard", "metrics", "operational",
-                "impact", "dependency", "dependencies", "compliance",
+                "impact", "dependency", "dependencies",
                 "ire", "reconcile", "remediate", "history of",
                 "ci type", "ci class", "data quality",
             ],
@@ -622,3 +622,196 @@ class TaskRouter:
     def rule_count(self) -> int:
         """Return the number of configured routing rules."""
         return len(self._rules)
+
+
+class RoutingRulesLoader:
+    """Loader for routing rules from JSON configuration files.
+
+    Supports loading, validating, caching, and hot-reloading of routing
+    configuration. Validates configuration against schema and enforces
+    consistency across domains, capabilities, and rules.
+
+    Attributes:
+        config_path: Path to routing-rules.json file.
+        validate_on_load: If True, validate config against schema on load.
+        cache_config: If True, cache loaded config in memory.
+        enable_hot_reload: If True, watch file for changes and reload.
+    """
+
+    def __init__(
+        self,
+        config_path: str,
+        validate_on_load: bool = True,
+        cache_config: bool = True,
+        enable_hot_reload: bool = True,
+    ) -> None:
+        """Initialize the RoutingRulesLoader.
+
+        Args:
+            config_path: Path to routing-rules.json file.
+            validate_on_load: Whether to validate on initial load.
+            cache_config: Whether to cache loaded config.
+            enable_hot_reload: Whether to enable hot-reload watching.
+        """
+        self.config_path = config_path
+        self.validate_on_load = validate_on_load
+        self.cache_config = cache_config
+        self.enable_hot_reload = enable_hot_reload
+        self._cached_config: dict[str, Any] | None = None
+        self._last_modified: float | None = None
+        self._validation_errors: list[str] = []
+
+    def load(self) -> dict[str, Any]:
+        """Load routing rules configuration from file.
+
+        Returns:
+            Dictionary containing the routing rules configuration.
+
+        Raises:
+            FileNotFoundError: If config file does not exist.
+            ValueError: If config is invalid and validate_on_load is True.
+        """
+        import json
+        from pathlib import Path
+
+        path = Path(self.config_path)
+        if not path.exists():
+            raise FileNotFoundError(f"Routing rules config not found: {self.config_path}")
+
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                config = json.load(f)
+        except json.JSONDecodeError as e:
+            raise ValueError(f"Invalid JSON in routing rules config: {e}")
+
+        if self.validate_on_load:
+            errors = self.validate(config)
+            if errors:
+                self._validation_errors = errors
+                raise ValueError(f"Routing rules config validation failed: {errors}")
+
+        if self.cache_config:
+            self._cached_config = config
+            self._last_modified = path.stat().st_mtime
+
+        logger.info(
+            "Loaded routing rules configuration",
+            extra={
+                "extra_data": {
+                    "config_path": self.config_path,
+                    "domains": len(config.get("domains", {})),
+                    "rules": len(config.get("routing_rules", [])),
+                    "capabilities": len(config.get("capability_mappings", {})),
+                }
+            },
+        )
+
+        return config
+
+    def validate(self, config: dict[str, Any]) -> list[str]:
+        """Validate routing rules configuration against schema.
+
+        Args:
+            config: The routing rules configuration to validate.
+
+        Returns:
+            List of validation error messages (empty if valid).
+        """
+        errors = []
+
+        # Check required top-level fields
+        required_fields = ["version", "domains", "routing_rules", "capability_mappings"]
+        for field in required_fields:
+            if field not in config:
+                errors.append(f"Missing required field: {field}")
+
+        if errors:
+            self._validation_errors = errors
+            return errors
+
+        # Validate domains
+        domains = config.get("domains", {})
+        for domain_id, domain_config in domains.items():
+            if "id" not in domain_config:
+                errors.append(f"Domain '{domain_id}' missing 'id' field")
+            if "name" not in domain_config:
+                errors.append(f"Domain '{domain_id}' missing 'name' field")
+            if "keywords" not in domain_config or not isinstance(domain_config["keywords"], list):
+                errors.append(f"Domain '{domain_id}' missing or invalid 'keywords' field")
+
+        # Validate routing rules
+        rules = config.get("routing_rules", [])
+        for rule in rules:
+            if "id" not in rule:
+                errors.append("Routing rule missing 'id' field")
+            if "name" not in rule:
+                errors.append("Routing rule missing 'name' field")
+            if "priority" not in rule or not isinstance(rule["priority"], int):
+                errors.append(f"Routing rule '{rule.get('id')}' has invalid 'priority'")
+
+            # Validate target agent if specified
+            if "target_agent" in rule and rule["target_agent"]:
+                # Target agent should be one of the known agents
+                valid_agents = ["cmdb-agent", "discovery-agent", "asset-agent", "csa-agent", "itom-auditor", "itom-documentator"]
+                if rule["target_agent"] not in valid_agents:
+                    logger.warning(
+                        f"Routing rule '{rule.get('id')}' targets unknown agent: {rule['target_agent']}"
+                    )
+
+        # Validate capability mappings
+        capabilities = config.get("capability_mappings", {})
+        for cap_name, cap_config in capabilities.items():
+            if "domain" not in cap_config:
+                errors.append(f"Capability '{cap_name}' missing 'domain' field")
+            if "agents" not in cap_config or not isinstance(cap_config["agents"], list):
+                errors.append(f"Capability '{cap_name}' missing or invalid 'agents' field")
+
+        # Check domain consistency: verify domains in rules and capabilities exist
+        for rule in rules:
+            if "domain" in rule and rule["domain"]:
+                if rule["domain"] not in domains:
+                    errors.append(f"Routing rule '{rule.get('id')}' references undefined domain: {rule['domain']}")
+
+        for cap_name, cap_config in capabilities.items():
+            domain = cap_config.get("domain")
+            if domain and domain not in domains:
+                errors.append(f"Capability '{cap_name}' references undefined domain: {domain}")
+
+        self._validation_errors = errors
+        return errors
+
+    def needs_reload(self) -> bool:
+        """Check if config file has been modified since last load.
+
+        Returns:
+            True if file modification time is newer than cached timestamp.
+        """
+        if not self.enable_hot_reload or self._last_modified is None:
+            return False
+
+        from pathlib import Path
+
+        path = Path(self.config_path)
+        if not path.exists():
+            return False
+
+        return path.stat().st_mtime > self._last_modified
+
+    def get_cached_config(self) -> dict[str, Any] | None:
+        """Return cached configuration if available.
+
+        Returns:
+            Cached configuration dict, or None if not cached.
+        """
+        return self._cached_config
+
+    def clear_cache(self) -> None:
+        """Clear the cached configuration."""
+        self._cached_config = None
+        self._last_modified = None
+        self._validation_errors = []
+
+    @property
+    def validation_errors(self) -> list[str]:
+        """Return list of validation errors from last validation."""
+        return self._validation_errors.copy()

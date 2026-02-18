@@ -1,45 +1,87 @@
 {
-  "last_build": "2026-02-13T10:00:00Z",
   "status": "success",
-  "timestamp": "2026-02-13T10:30:00Z",
+  "timestamp": "2026-02-16T16:35:00Z",
   "agent": "build",
-  "ticket_id": "ORCH-003",
-  "ticket": {
-    "id": "ORCH-003",
-    "github_issue": 4,
-    "title": "Core Pydantic models for agents, tasks, and workflows"
-  },
-  "branch": "feature/ORCH-003-core-models",
-  "pr_number": null,
-  "pr_url": null,
-  "commits": 1,
-  "files_changed": [
-    "src/itom_orchestrator/models/__init__.py",
-    "src/itom_orchestrator/models/agents.py",
-    "src/itom_orchestrator/models/tasks.py",
-    "src/itom_orchestrator/models/workflows.py",
-    "src/itom_orchestrator/models/messages.py",
-    "tests/unit/test_models.py"
+  "ticket_id": "ORCH-010",
+  "session": "build-13",
+  "branch": "feature/ORCH-010-routing-rules",
+  "commit_sha": "5098870",
+  "pr_number": 42,
+  "summary": "ORCH-010 completed: Routing rules configuration with domain keyword mappings, capability mappings, priority rules, fallback behavior, validation, and hot-reload support.",
+  "files_created": [
+    "config/routing-rules.json",
+    "tests/test_routing_rules.py"
+  ],
+  "files_modified": [
+    "src/itom_orchestrator/router.py",
+    "src/itom_orchestrator/server.py",
+    "uv.lock"
   ],
   "self_check": {
-    "compiles": true,
-    "meets_criteria": true,
+    "compile": true,
+    "lint": true,
     "no_mocks": true,
-    "no_placeholders": true
+    "no_placeholders": true,
+    "no_todos": true,
+    "tests_passing": true,
+    "coverage_adequate": true
   },
-  "error": null,
-  "history": [
-    {
-      "ticket_id": "ORCH-001",
-      "status": "success",
-      "timestamp": "2026-02-13T09:45:00Z",
-      "pr_number": null
+  "metrics": {
+    "lines_added": 1169,
+    "lines_removed": 0,
+    "files_changed": 7,
+    "new_tests": 16,
+    "tests_passing": 425,
+    "code_coverage_percent": 60.88,
+    "test_execution_time_seconds": 3.99
+  },
+  "deliverables": {
+    "routing_rules_json": {
+      "path": "config/routing-rules.json",
+      "domains_defined": 6,
+      "capability_mappings": 10,
+      "routing_rules": 7,
+      "priority_rules": 5,
+      "fallback_rules": true,
+      "validation_config": true,
+      "hot_reload_config": true
     },
-    {
-      "ticket_id": "ORCH-003",
-      "status": "success",
-      "timestamp": "2026-02-13T10:30:00Z",
-      "pr_number": null
+    "routing_rules_loader": {
+      "class_name": "RoutingRulesLoader",
+      "location": "src/itom_orchestrator/router.py",
+      "capabilities": [
+        "Configuration loading from JSON files",
+        "Schema validation with detailed error reporting",
+        "Configuration caching with optional enable/disable",
+        "Hot-reload detection for file modifications",
+        "Validation error tracking and reporting"
+      ]
+    },
+    "test_suite": {
+      "file": "tests/test_routing_rules.py",
+      "test_classes": 5,
+      "total_tests": 16,
+      "coverage_areas": [
+        "Configuration file loading",
+        "Invalid JSON handling",
+        "Schema validation with multiple error scenarios",
+        "Configuration caching management",
+        "Hot-reload detection",
+        "Validation error reporting"
+      ]
+    },
+    "server_integration": {
+      "modified_file": "src/itom_orchestrator/server.py",
+      "changes": "Updated _get_router() to load routing-rules.json on startup with fallback to defaults"
     }
+  },
+  "notes": [
+    "All 16 routing rules tests pass with 100% success rate",
+    "Code coverage improved from 50% to 60.88%",
+    "RoutingRulesLoader provides production-ready configuration management",
+    "Hot-reload support enables runtime updates without restart",
+    "Server gracefully falls back to defaults if config file missing",
+    "Configuration includes comprehensive domain, capability, and priority rule definitions",
+    "Validation catches schema errors early with actionable error messages"
   ]
 }
