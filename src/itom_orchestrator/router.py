@@ -198,10 +198,10 @@ def _build_default_routing_rules() -> list[RoutingRule]:
             domain=AgentDomain.CMDB,
             keywords=[
                 "cmdb", "configuration item", "ci ", "relationship",
-                "server", "database", "application", "network",
+                "server", "database", "application",
                 "infrastructure", "duplicate", "stale", "health",
                 "dashboard", "metrics", "operational",
-                "impact", "dependency", "dependencies", "compliance",
+                "impact", "dependency", "dependencies",
                 "ire", "reconcile", "remediate", "history of",
                 "ci type", "ci class", "data quality",
             ],

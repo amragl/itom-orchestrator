@@ -79,23 +79,92 @@ All configuration is via environment variables with the `ORCH_` prefix:
 
 See `.env.example` for the full list.
 
+## Architecture
+
+### Workflow Engine (ORCH-012)
+
+The workflow engine executes multi-step workflow definitions with dependency ordering:
+
+- **WorkflowEngine** -- executes steps in topological order based on `depends_on` declarations
+- **WorkflowTemplateRegistry** -- pre-built templates for common ITOM operations (CMDB health check, incident response, discovery audit, asset lifecycle)
+- **WorkflowCheckpointer** -- saves/restores execution state to JSON files for resumption after interruptions
+
+### Messaging System (ORCH-015, ORCH-016, ORCH-017)
+
+Inter-agent communication is handled by three complementary components:
+
+- **MessageQueue** -- priority-based in-memory message queue for point-to-point agent messaging
+- **EventBus** -- synchronous publish/subscribe event bus for workflow lifecycle and agent status events
+- **NotificationManager** -- unified notification interface combining the queue and event bus
+
+### Role Enforcement (ORCH-018, ORCH-020)
+
+Role-based access control for agent actions:
+
+- **RoleEnforcer** -- checks permissions for role/action/domain combinations
+- Default policies for all 6 ITOM agents: orchestrator (admin), cmdb-agent, discovery-agent, asset-agent, itom-auditor (read-only), itom-documentator
+- JSON-based policy configuration with load/save/validate functions
+
+### Audit Trail (ORCH-019)
+
+Records all significant actions for compliance and debugging:
+
+- **AuditTrail** -- in-memory audit log with filtering by event type, actor, and timestamp
+- Supports JSON export for external analysis
+- Integrated with role enforcer for permission check auditing
+
+### Routing Configuration (ORCH-010)
+
+Externalized routing rules via JSON configuration:
+
+- **RoutingConfig** -- Pydantic model for routing rules
+- **RoutingRulesLoader** -- file-based loading with validation, caching, and hot-reload
+
 ## Project Structure
 
 ```
 itom-orchestrator/
   src/
     itom_orchestrator/
-      __init__.py          # Package exports, version
-      config.py            # Pydantic BaseSettings configuration
-      logging_config.py    # Structured JSON logging
-      error_codes.py       # ORCH_XXXX error code constants
-      server.py            # FastMCP server entry point
-      models/              # Pydantic models (agents, tasks, workflows)
+      __init__.py              # Package exports, version
+      config.py                # Pydantic BaseSettings configuration
+      logging_config.py        # Structured JSON logging
+      error_codes.py           # ORCH_XXXX error code constants
+      server.py                # FastMCP server entry point
+      http_server.py           # FastAPI HTTP server
+      router.py                # Task routing engine
+      executor.py              # Task execution with retry/timeout
+      registry.py              # Agent registry
+      health.py                # Agent health checking
+      workflow_engine.py       # Workflow state machine and execution
+      workflow_templates.py    # Pre-built workflow templates
+      workflow_checkpoint.py   # Workflow state checkpointing
+      messaging.py             # Inter-agent message queue
+      event_bus.py             # Publish/subscribe event bus
+      notifications.py         # Agent notification manager
+      role_enforcer.py         # Role-based access control
+      audit_trail.py           # Audit trail recording
+      routing_config.py        # Routing rules configuration
+      models/                  # Pydantic models (agents, tasks, workflows, messages)
+      api/                     # FastAPI routes
   tests/
-    conftest.py            # Shared fixtures
-    unit/                  # Unit tests
-    integration/           # Integration tests
-  pyproject.toml           # Package config (hatchling build)
-  Makefile                 # Development task runner
-  .env.example             # Environment variable template
+    conftest.py                # Shared fixtures
+    unit/                      # Unit tests (24 files)
+    integration/               # Integration tests (3 files)
+  Dockerfile                   # Container image
+  docker-compose.yml           # Docker Compose config
+  pyproject.toml               # Package config (hatchling build)
+  Makefile                     # Development task runner
+  .env.example                 # Environment variable template
+```
+
+## Docker
+
+```bash
+# Build and run
+docker compose up --build
+
+# Or build manually
+docker build -t itom-orchestrator .
+docker run -p 8000:8000 itom-orchestrator
 ```

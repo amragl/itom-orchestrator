@@ -58,6 +58,9 @@ def _reset_global_singletons() -> Generator[None, None, None]:
     import itom_orchestrator.http_server as http_server_mod
     import itom_orchestrator.persistence as persistence_mod
     import itom_orchestrator.server as server_mod
+    import itom_orchestrator.messaging as messaging_mod
+    import itom_orchestrator.event_bus as event_bus_mod
+    import itom_orchestrator.audit_trail as audit_trail_mod
 
     config_mod._config = None
     persistence_mod._persistence = None
@@ -67,6 +70,9 @@ def _reset_global_singletons() -> Generator[None, None, None]:
     server_mod._executor_instance = None
     http_server_mod._registry_instance = None
     http_server_mod._health_checker_instance = None
+    messaging_mod._global_queue = None
+    event_bus_mod._global_bus = None
+    audit_trail_mod._global_trail = None
 
     yield
 
@@ -78,3 +84,6 @@ def _reset_global_singletons() -> Generator[None, None, None]:
     server_mod._executor_instance = None
     http_server_mod._registry_instance = None
     http_server_mod._health_checker_instance = None
+    messaging_mod._global_queue = None
+    event_bus_mod._global_bus = None
+    audit_trail_mod._global_trail = None

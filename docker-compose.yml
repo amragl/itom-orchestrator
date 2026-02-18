@@ -1,0 +1,24 @@
+services:
+  orchestrator:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      - ORCH_DATA_DIR=/data/itom-orchestrator
+      - ORCH_LOG_LEVEL=INFO
+      - ORCH_HTTP_HOST=0.0.0.0
+      - ORCH_HTTP_PORT=8000
+    volumes:
+      - orchestrator-data:/data/itom-orchestrator
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  orchestrator-data:
