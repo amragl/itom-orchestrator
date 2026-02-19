@@ -218,13 +218,35 @@ def _build_default_routing_rules() -> list[RoutingRule]:
             name="asset-domain",
             priority=10,
             domain=AgentDomain.ASSET,
-            keywords=["asset", "inventory", "license", "hardware", "software asset"],
+            keywords=[
+                "asset", "asset inventory", "asset management",
+                "hardware asset", "hardware inventory", "hardware list",
+                "software asset", "software inventory",
+                "license inventory", "license management", "license compliance",
+            ],
         ),
+        # CSA handles service catalog, request creation, and workflow diagrams.
+        # Priority 9 (higher than asset at 10) so "create/submit/open + request"
+        # beats the bare "hardware" keyword in asset-domain.
         RoutingRule(
             name="csa-domain",
-            priority=10,
+            priority=9,
             domain=AgentDomain.CSA,
-            keywords=["catalog", "workflow", "request", "remediation", "service catalog"],
+            keywords=[
+                # Catalog / request creation
+                "service catalog", "catalog item", "catalog request",
+                "create a request", "create request", "new request",
+                "submit a request", "submit request", "open a request", "open request",
+                "raise a request", "raise request", "service request",
+                "catalog", "remediation",
+                # Workflow
+                "workflow", "fulfillment workflow", "approval workflow",
+                "request approval", "approval process",
+                # Diagrams
+                "flowchart", "flow chart", "pipeline flow", "request flow",
+                "workflow diagram", "process diagram", "show me how",
+                "how does the", "explain the process",
+            ],
         ),
         RoutingRule(
             name="audit-domain",
