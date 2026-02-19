@@ -286,6 +286,76 @@ class TestNoRouteFound:
             router.route(task)
 
 
+class TestSessionContinuityFallback:
+    """Tests for session-continuity routing fallback."""
+
+    def test_session_fallback_routes_to_last_agent(self, router: TaskRouter) -> None:
+        """Task with no routing hints but a last_agent_id should route via session continuity."""
+        task = _make_task(
+            title="which ones are missing a serial number",
+            description="",
+            parameters={"context": {"last_agent_id": "cmdb-agent"}},
+        )
+        decision = router.route(task)
+        # "missing" is now a keyword in cmdb-search-fallback, so it may route by rule.
+        # Either way, cmdb-agent should be selected.
+        assert decision.agent.agent_id == "cmdb-agent"
+
+    def test_session_fallback_used_when_no_keywords_match(self, router: TaskRouter) -> None:
+        """A truly ambiguous follow-up should fall back to session continuity."""
+        task = _make_task(
+            title="now do the same for the second batch",
+            description="",
+            parameters={"context": {"last_agent_id": "discovery-agent"}},
+        )
+        decision = router.route(task)
+        assert decision.agent.agent_id == "discovery-agent"
+        assert decision.method == "session"
+        assert "Session continuity" in decision.reason
+
+    def test_session_fallback_skipped_if_agent_offline(
+        self, registry_with_online_agents: AgentRegistry
+    ) -> None:
+        """Session fallback should not route to an offline agent."""
+        registry_with_online_agents.update_status("cmdb-agent", AgentStatus.OFFLINE)
+        router = TaskRouter(registry=registry_with_online_agents)
+        task = _make_task(
+            title="now do the same for the second batch",
+            description="",
+            parameters={"context": {"last_agent_id": "cmdb-agent"}},
+        )
+        with pytest.raises(NoRouteFoundError):
+            router.route(task)
+
+    def test_session_fallback_skipped_if_agent_gone(self, router: TaskRouter) -> None:
+        """Session fallback should not crash if the agent no longer exists."""
+        task = _make_task(
+            title="now do the same for the second batch",
+            description="",
+            parameters={"context": {"last_agent_id": "nonexistent-agent"}},
+        )
+        with pytest.raises(NoRouteFoundError):
+            router.route(task)
+
+    def test_session_fallback_not_used_when_no_context(self, router: TaskRouter) -> None:
+        """Without session context, a generic message should still raise NoRouteFoundError."""
+        task = _make_task(
+            title="now do the same for the second batch",
+            description="",
+        )
+        with pytest.raises(NoRouteFoundError):
+            router.route(task)
+
+    def test_conversational_keywords_route_to_cmdb(self, router: TaskRouter) -> None:
+        """Conversational follow-up keywords should route to cmdb-agent via search-fallback rule."""
+        for phrase in ["which ones are missing", "filter to production only", "sort by name"]:
+            task = _make_task(title=phrase, description="")
+            decision = router.route(task)
+            assert decision.agent.agent_id == "cmdb-agent", (
+                f"Expected cmdb-agent for '{phrase}', got {decision.agent.agent_id}"
+            )
+
+
 class TestRoutingRules:
     """Tests for configurable routing rules."""
 
