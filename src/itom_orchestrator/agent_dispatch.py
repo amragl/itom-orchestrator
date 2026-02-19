@@ -469,8 +469,9 @@ def _format_cmdb_response(tool_name: str, raw_text: str) -> str:
 
     if tool_name == "find_stale_configuration_items":
         if isinstance(data, dict):
+            # Tool returns: {"stale_cis": [...], "count": N, "days_threshold": N}
             results = data.get("stale_cis", data.get("result", []))
-            total = data.get("stale_count", data.get("total_count", len(results)))
+            total = data.get("count", data.get("stale_count", data.get("total_count", len(results))))
             cutoff = data.get("cutoff_date", "")
         elif isinstance(data, list):
             results = data
@@ -494,21 +495,25 @@ def _format_cmdb_response(tool_name: str, raw_text: str) -> str:
 
     if tool_name == "find_duplicate_configuration_items":
         if isinstance(data, dict):
-            duplicates = data.get("duplicates", {})
-            total = data.get("duplicate_count", len(duplicates))
+            # Tool returns: {"duplicate_groups": [{value, count, cis}], "total_groups": N}
+            groups = data.get("duplicate_groups", data.get("duplicates", []))
+            total = data.get("total_groups", data.get("duplicate_count", len(groups) if isinstance(groups, list) else 0))
             match_field = data.get("match_field", "name")
         else:
             return raw_text
         lines = [f"**Found {total} duplicate group(s)** (matched by {match_field})", ""]
-        # duplicates is a dict: {name: [list of CIs with that name]}
-        if isinstance(duplicates, dict):
-            for i, (name, cis) in enumerate(list(duplicates.items())[:10], 1):
+        if isinstance(groups, list):
+            for i, grp in enumerate(groups[:10], 1):
+                if isinstance(grp, dict):
+                    val = grp.get("value", grp.get("name", "Unknown"))
+                    cnt = grp.get("count", len(grp.get("cis", [])))
+                    lines.append(f"  {i}. **{val}** — {cnt} copies")
+                else:
+                    lines.append(f"  {i}. {grp}")
+        elif isinstance(groups, dict):
+            for i, (name, cis) in enumerate(list(groups.items())[:10], 1):
                 count = len(cis) if isinstance(cis, list) else "?"
                 lines.append(f"  {i}. **{name}** — {count} copies")
-        elif isinstance(duplicates, list):
-            for i, ci in enumerate(duplicates[:10], 1):
-                name = ci.get("name", "Unnamed") if isinstance(ci, dict) else str(ci)
-                lines.append(f"  {i}. {name}")
         if isinstance(total, int) and total > 10:
             lines.append(f"\n  ... and {total - 10} more groups")
         return _to_chat_markdown(lines)
@@ -810,7 +815,7 @@ def _make_cmdb_handler(server_url: str) -> Any:
             _id = _extract_identifier(message)
             if _id:
                 tool_name = "search_configuration_items"
-                arguments = {"ci_type": _infer_ci_type(message_lower) or "server", "name": _id, "limit": 1}
+                arguments = {"ci_type": _infer_ci_type(message_lower) or "server", "query": f"nameLIKE{_id}", "limit": 1}
 
         # IRE (Identification & Reconciliation)
         elif any(kw in message_lower for kw in ["ire rule", "identification rule"]):
