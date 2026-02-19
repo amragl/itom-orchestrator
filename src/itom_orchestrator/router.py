@@ -204,6 +204,8 @@ def _build_default_routing_rules() -> list[RoutingRule]:
                 "impact", "dependency", "dependencies",
                 "ire", "reconcile", "remediate", "history of",
                 "ci type", "ci class", "data quality",
+                "eol", "end of life", "lifecycle", "criticality", "production",
+                "missing serial", "without serial", "missing owner",
             ],
         ),
         RoutingRule(
@@ -242,7 +244,15 @@ def _build_default_routing_rules() -> list[RoutingRule]:
             name="cmdb-search-fallback",
             priority=50,
             domain=AgentDomain.CMDB,
-            keywords=["search", "find", "look up", "query", "show me", "list", "count", "how many"],
+            keywords=[
+                "search", "find", "look up", "query", "show me", "list", "count", "how many",
+                # conversational follow-ups that imply data lookup
+                "which ones", "which of", "filter", "filter to", "sort by", "group by",
+                "only show", "just show", "now show", "also show",
+                "missing", "without", "no owner", "no serial", "no os",
+                "production only", "dev only", "staging only",
+                "more details", "tell me more", "what about",
+            ],
         ),
     ]
 
@@ -337,6 +347,24 @@ class TaskRouter:
             if decision:
                 self._record_routing(task, decision)
                 return decision
+
+        # 5. Session-continuity fallback: if the message has no routing signals
+        # but the session has a previously successful agent, re-use it.
+        last_agent_id = task.parameters.get("context", {}).get("last_agent_id")
+        if last_agent_id:
+            try:
+                agent = self._registry.get(last_agent_id)
+                if not self._require_available or agent.status in _AVAILABLE_STATUSES:
+                    decision = RoutingDecision(
+                        agent=agent,
+                        reason=f"Session continuity: re-routing to last agent '{last_agent_id}' from session context.",
+                        method="session",
+                        candidates_evaluated=1,
+                    )
+                    self._record_routing(task, decision)
+                    return decision
+            except AgentNotFoundError:
+                pass  # Agent gone, fall through to NoRouteFoundError
 
         # No route found
         raise NoRouteFoundError(
