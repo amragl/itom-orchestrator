@@ -233,8 +233,9 @@ def _build_default_routing_rules() -> list[RoutingRule]:
             priority=9,
             domain=AgentDomain.CSA,
             keywords=[
-                # Catalog / request creation
-                "service catalog", "catalog item", "catalog request",
+                # Catalog / request creation (bare "request" is safe since
+                # asset-domain no longer has bare "hardware" to conflict)
+                "request", "service catalog", "catalog item", "catalog request",
                 "create a request", "create request", "new request",
                 "submit a request", "submit request", "open a request", "open request",
                 "raise a request", "raise request", "service request",
