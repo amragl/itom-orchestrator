@@ -59,6 +59,26 @@ class OrchestratorConfig(BaseSettings):
         default=None,
         description="URL of the CMDB MCP server (e.g. http://localhost:8002/mcp).",
     )
+    csa_agent_url: str | None = Field(
+        default=None,
+        description="URL of the CSA Agent MCP server (e.g. http://localhost:8003/mcp).",
+    )
+    discovery_agent_url: str | None = Field(
+        default=None,
+        description="URL of the Discovery Agent MCP server (e.g. http://localhost:8004/mcp).",
+    )
+    asset_agent_url: str | None = Field(
+        default=None,
+        description="URL of the Asset Management Agent MCP server (e.g. http://localhost:8005/mcp).",
+    )
+    auditor_agent_url: str | None = Field(
+        default=None,
+        description="URL of the ITOM Auditor Agent MCP server (e.g. http://localhost:8006/mcp).",
+    )
+    documentator_agent_url: str | None = Field(
+        default=None,
+        description="URL of the ITOM Documentator Agent MCP server (e.g. http://localhost:8007/mcp).",
+    )
 
     @computed_field  # type: ignore[prop-decorator]
     @property

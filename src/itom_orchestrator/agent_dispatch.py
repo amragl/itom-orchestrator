@@ -943,22 +943,137 @@ def _make_cmdb_handler(server_url: str) -> Any:
     return handler
 
 
-def register_all_handlers() -> None:
-    """Register dispatch handlers for all configured agent endpoints.
+def _make_generic_handler(server_url: str, agent_name: str) -> Any:
+    """Create a generic dispatch handler for a FastMCP agent.
 
-    Reads agent endpoint URLs from the orchestrator config and registers
-    handlers with the TaskExecutor.
+    Lists the agent's available tools, selects the best match for the
+    user's message using keyword scoring, and calls it. Falls back to
+    the first available tool if no keyword match is found.
+
+    Args:
+        server_url: Base URL of the MCP server (e.g. http://localhost:8003/mcp).
+        agent_name: Human-readable agent name for logging and error messages.
+
+    Returns:
+        A callable(Task) -> dict handler for the executor.
     """
+
+    def handler(task: Task) -> dict[str, Any]:
+        message = task.description or task.title
+        message_lower = message.lower()
+
+        def _run_in_new_loop() -> Any:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                from fastmcp import Client
+
+                async def _call() -> Any:
+                    async with Client(server_url) as client:
+                        # List all available tools
+                        tools_result = await client.list_tools()
+                        tools = tools_result if isinstance(tools_result, list) else getattr(tools_result, "tools", [])
+
+                        if not tools:
+                            return None, None
+
+                        # Score each tool by keyword overlap with the message
+                        best_tool = tools[0]
+                        best_score = 0
+                        for tool in tools:
+                            tool_name = getattr(tool, "name", str(tool))
+                            tool_desc = getattr(tool, "description", "") or ""
+                            combined = (tool_name + " " + tool_desc).lower().replace("_", " ")
+                            # Count matching words
+                            score = sum(
+                                1 for word in message_lower.split()
+                                if len(word) > 3 and word in combined
+                            )
+                            if score > best_score:
+                                best_score = score
+                                best_tool = tool
+
+                        tool_name = getattr(best_tool, "name", str(best_tool))
+
+                        # Build minimal arguments: try common parameter names
+                        # that most query tools accept
+                        arguments: dict[str, Any] = {}
+                        input_schema = getattr(best_tool, "inputSchema", {}) or {}
+                        props = input_schema.get("properties", {})
+                        for param in ("query", "message", "text", "search", "filter"):
+                            if param in props:
+                                arguments[param] = message
+                                break
+
+                        result = await client.call_tool(tool_name, arguments)
+                        return tool_name, result
+
+                return loop.run_until_complete(_call())
+            finally:
+                loop.close()
+
+        future = _thread_pool.submit(_run_in_new_loop)
+        tool_name, result = future.result(timeout=30)
+
+        if result is None:
+            return {
+                "agent_response": f"**{agent_name}** is connected but has no tools available.",
+                "tool_used": None,
+                "source": agent_name.lower().replace(" ", "-"),
+            }
+
+        # Extract text from FastMCP CallToolResult
+        content_items = getattr(result, "content", None)
+        if content_items is None:
+            content_items = result if isinstance(result, list) else [result]
+
+        texts = []
+        for item in content_items:
+            if hasattr(item, "text"):
+                texts.append(item.text)
+            elif isinstance(item, dict) and "text" in item:
+                texts.append(item["text"])
+            else:
+                texts.append(str(item))
+
+        response_text = "\n".join(texts)
+
+        logger.info(
+            f"{agent_name} dispatch succeeded",
+            extra={"extra_data": {"task_id": task.task_id, "tool_used": tool_name}},
+        )
+
+        return {
+            "agent_response": response_text,
+            "tool_used": tool_name,
+            "source": agent_name.lower().replace(" ", "-"),
+        }
+
+    return handler
+
+
+def register_all_handlers() -> None:
+    """Register dispatch handlers for all configured agent endpoints."""
     from itom_orchestrator.executor import TaskExecutor
 
     config = get_config()
 
-    cmdb_url = config.cmdb_agent_url
-    if cmdb_url:
-        logger.info(
-            "Registering CMDB dispatch handler",
-            extra={"extra_data": {"url": cmdb_url}},
-        )
-        TaskExecutor.register_dispatch_handler("cmdb-agent", _make_cmdb_handler(cmdb_url))
-    else:
-        logger.info("No CMDB agent URL configured, skipping dispatch handler")
+    _agent_configs = [
+        ("cmdb-agent", config.cmdb_agent_url, None),  # uses specialized handler
+        ("csa-agent", config.csa_agent_url, "CSA Agent"),
+        ("discovery-agent", config.discovery_agent_url, "Discovery Agent"),
+        ("asset-agent", config.asset_agent_url, "Asset Management Agent"),
+        ("itom-auditor", config.auditor_agent_url, "ITOM Auditor"),
+        ("itom-documentator", config.documentator_agent_url, "ITOM Documentator"),
+    ]
+
+    for agent_id, url, display_name in _agent_configs:
+        if not url:
+            logger.info(f"No URL configured for {agent_id}, skipping dispatch handler")
+            continue
+        if agent_id == "cmdb-agent":
+            logger.info("Registering CMDB dispatch handler", extra={"extra_data": {"url": url}})
+            TaskExecutor.register_dispatch_handler(agent_id, _make_cmdb_handler(url))
+        else:
+            logger.info(f"Registering {display_name} dispatch handler", extra={"extra_data": {"url": url}})
+            TaskExecutor.register_dispatch_handler(agent_id, _make_generic_handler(url, display_name))
