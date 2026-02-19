@@ -1026,6 +1026,221 @@ def _make_cmdb_handler(server_url: str) -> Any:
     return handler
 
 
+def _format_csa_response(tool_name: str, raw_text: str) -> str:
+    """Format raw CSA agent JSON into a human-readable chat response."""
+    try:
+        data = json.loads(raw_text)
+    except (json.JSONDecodeError, TypeError):
+        return raw_text
+
+    if tool_name == "execute_pipeline":
+        success = data.get("success", False)
+        outcome = data.get("outcome", "unknown")
+        run_log = data.get("run_log", [])
+        error = data.get("error", "")
+        error_code = data.get("error_code", "")
+
+        if not success:
+            lines = [f"**CSA Pipeline: {outcome.upper()}**", ""]
+            if run_log:
+                lines.append("**Steps completed:**")
+                for step in run_log:
+                    state = step.get("state", "?")
+                    status = step.get("status", "?")
+                    icon = "OK" if status == "completed" else ("SKIP" if status == "skipped" else "FAIL")
+                    lines.append(f"  [{icon}] {state}")
+                lines.append("")
+            if error:
+                # Strip long technical prefix from error for readability
+                short_error = error
+                if "Table '" in error and "not in the allowlist" in error:
+                    short_error = "ServiceNow table access denied (allowlist configuration required)"
+                elif len(error) > 200:
+                    short_error = error[:200] + "..."
+                lines.append(f"**Error:** {short_error}")
+            if error_code:
+                lines.append(f"**Code:** `{error_code}`")
+            return _to_chat_markdown(lines)
+
+        # Success: format the catalog spec and workflow spec
+        catalog = data.get("catalog_spec", {})
+        workflow = data.get("workflow_spec", {})
+        analysis = data.get("analysis", {})
+
+        lines = ["**CSA Pipeline: SUCCESS**", ""]
+
+        if catalog:
+            name = catalog.get("name", "Unnamed")
+            desc = catalog.get("short_description", catalog.get("description", ""))
+            template = catalog.get("template", "")
+            variables = catalog.get("variables", [])
+            lines.append(f"**Catalog Item: {name}**")
+            if desc:
+                lines.append(f"  {desc}")
+            if template:
+                lines.append(f"  Template: `{template}`")
+            if variables:
+                lines.append(f"  Variables: {len(variables)} field(s)")
+                for v in variables[:5]:
+                    if isinstance(v, dict):
+                        vname = v.get("question_text", v.get("name", "?"))
+                        vtype = v.get("type", "")
+                        required = " *" if v.get("mandatory") else ""
+                        lines.append(f"    - {vname} ({vtype}){required}")
+            lines.append("")
+
+        if workflow:
+            wname = workflow.get("name", "")
+            wdesc = workflow.get("description", "")
+            wtemplate = workflow.get("template", "")
+            if wname:
+                lines.append(f"**Workflow: {wname}**")
+                if wdesc:
+                    short = wdesc[:120] + "..." if len(wdesc) > 120 else wdesc
+                    lines.append(f"  {short}")
+                if wtemplate:
+                    lines.append(f"  Template: `{wtemplate}`")
+                lines.append("")
+
+        if analysis:
+            risk = analysis.get("risk_level", "")
+            approval = analysis.get("approval_type", "")
+            req_type = analysis.get("request_type", "")
+            if req_type or risk:
+                lines.append("**Analysis**")
+                if req_type:
+                    lines.append(f"  Type: {req_type}")
+                if risk:
+                    lines.append(f"  Risk: {risk}")
+                if approval:
+                    lines.append(f"  Approval: {approval}")
+
+        return _to_chat_markdown(lines)
+
+    # Generic fallback for other CSA tools
+    if isinstance(data, dict):
+        lines = [f"**{tool_name.replace('_', ' ').title()}**", ""]
+        for k, v in data.items():
+            label = k.replace("_", " ").title()
+            if isinstance(v, dict):
+                lines.append(f"  **{label}**")
+                for sk, sv in list(v.items())[:8]:
+                    lines.append(f"    {sk.replace('_', ' ').title()}: {_format_dict_value(sv)}")
+            elif isinstance(v, list):
+                lines.append(f"  **{label}**: {len(v)} items")
+            else:
+                lines.append(f"  {label}: {_format_dict_value(v)}")
+        return _to_chat_markdown(lines)
+
+    return raw_text
+
+
+# Pre-built Mermaid diagram for CSA request approval workflow.
+_CSA_WORKFLOW_DIAGRAM = """Here's a flowchart of the CSA request approval workflow:
+
+```mermaid
+flowchart TD
+    A([User Request]) --> B[Requirements Agent]
+    B -->|Classify & analyze| C{Approval Type?}
+
+    C -->|standard| D[Catalog Agent]
+    C -->|manager-approval| E[Manager Review]
+    C -->|change-board| F[Change Board]
+
+    E -->|Approved| D
+    F -->|Approved| D
+    E -->|Rejected| Z([Request Rejected])
+    F -->|Rejected| Z
+
+    D -->|Build catalog item & variables| G[Workflow Agent]
+    G -->|Configure fulfillment workflow| H[Request Agent]
+    H -->|Submit to ServiceNow| I{Created?}
+
+    I -->|Yes| J[Validator Agent]
+    I -->|No| K([Error: Retry or Escalate])
+
+    J -->|Validate catalog & workflow| L{Valid?}
+    L -->|Yes| M([Request Submitted])
+    L -->|No - fixable| D
+    L -->|No - fatal| K
+```
+
+**Stages:**
+- **Requirements Agent** — classifies request type, determines risk and approval path
+- **Catalog Agent** — builds the ServiceNow catalog item spec with variables
+- **Workflow Agent** — configures the fulfillment workflow
+- **Request Agent** — submits the request record to ServiceNow
+- **Validator Agent** — verifies the submitted catalog item and workflow are correct"""
+
+
+def _make_csa_handler(server_url: str) -> Any:
+    """Create a dedicated dispatch handler for the CSA (Service Catalog) agent.
+
+    Handles diagram/workflow requests locally (returning Mermaid diagrams)
+    and routes other requests to the CSA agent's execute_pipeline tool,
+    formatting the JSON response into readable markdown.
+    """
+
+    def handler(task: Task) -> dict[str, Any]:
+        message = task.description or task.title
+        message_lower = message.lower()
+
+        # Diagram/architecture requests — return a pre-built Mermaid flowchart
+        # instead of calling the pipeline (which would misinterpret the intent).
+        _diagram_keywords = [
+            "flowchart", "flow chart", "diagram", "architecture",
+            "workflow diagram", "process diagram", "how does", "how do",
+            "show me how", "explain the process", "show the flow",
+            "request approval flow", "approval process", "pipeline flow",
+        ]
+        if any(kw in message_lower for kw in _diagram_keywords):
+            return {
+                "agent_response": _CSA_WORKFLOW_DIAGRAM,
+                "tool_used": "diagram",
+                "source": "csa-agent",
+            }
+
+        # All other messages go to execute_pipeline
+        logger.info(
+            "CSA dispatch: calling execute_pipeline",
+            extra={"extra_data": {"task_id": task.task_id}},
+        )
+
+        try:
+            result = _call_mcp_tool_sync(server_url, "execute_pipeline", {"user_request": message})
+
+            content_items = getattr(result, "content", None)
+            if content_items is None:
+                content_items = result if isinstance(result, list) else [result]
+
+            texts = []
+            for item in content_items:
+                if hasattr(item, "text"):
+                    texts.append(item.text)
+                elif isinstance(item, dict) and "text" in item:
+                    texts.append(item["text"])
+                else:
+                    texts.append(str(item))
+
+            raw_response = "\n".join(texts)
+            formatted = _format_csa_response("execute_pipeline", raw_response)
+
+            return {
+                "agent_response": formatted,
+                "tool_used": "execute_pipeline",
+                "source": "csa-agent",
+            }
+
+        except Exception as exc:
+            logger.error(
+                "CSA dispatch failed",
+                extra={"extra_data": {"task_id": task.task_id, "error": str(exc)}},
+            )
+            raise RuntimeError(f"CSA agent call failed: {exc}") from exc
+
+    return handler
+
+
 def _make_generic_handler(server_url: str, agent_name: str) -> Any:
     """Create a generic dispatch handler for a FastMCP agent.
 
@@ -1170,6 +1385,9 @@ def register_all_handlers() -> None:
         if agent_id == "cmdb-agent":
             logger.info("Registering CMDB dispatch handler", extra={"extra_data": {"url": url}})
             TaskExecutor.register_dispatch_handler(agent_id, _make_cmdb_handler(url))
+        elif agent_id == "csa-agent":
+            logger.info("Registering CSA dispatch handler", extra={"extra_data": {"url": url}})
+            TaskExecutor.register_dispatch_handler(agent_id, _make_csa_handler(url))
         else:
             logger.info(f"Registering {display_name} dispatch handler", extra={"extra_data": {"url": url}})
             TaskExecutor.register_dispatch_handler(agent_id, _make_generic_handler(url, display_name))
