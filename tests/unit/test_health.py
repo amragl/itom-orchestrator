@@ -138,9 +138,9 @@ class TestCheckAgent:
         self, checker: AgentHealthChecker, registry: AgentRegistry
     ) -> None:
         """Health check should update the agent's status in the registry."""
-        # Default agents start as OFFLINE
+        # cmdb-agent starts as ONLINE (has MCP URL, port 8002)
         before = registry.get("cmdb-agent")
-        assert before.status == AgentStatus.OFFLINE
+        assert before.status == AgentStatus.ONLINE
 
         record = checker.check_agent("cmdb-agent", force=True)
         after = registry.get("cmdb-agent")
@@ -154,14 +154,14 @@ class TestCheckAgent:
         with pytest.raises(AgentNotFoundError):
             checker.check_agent("nonexistent-agent")
 
-    def test_check_agent_without_mcp_url(
+    def test_check_agent_with_mcp_url(
         self, checker: AgentHealthChecker
     ) -> None:
-        """Agent without MCP URL should get a registration-based check."""
+        """Agent with MCP URL should get a degraded check (network not verified)."""
         record = checker.check_agent("cmdb-agent")
-        # Default agents have no MCP URL, should be HEALTHY based on capabilities
-        assert record.result == HealthCheckResult.HEALTHY
-        assert "capabilities" in record.details.lower() or "registration" in record.details.lower()
+        # cmdb-agent has MCP URL — marked degraded until live connectivity is verified
+        assert record.result == HealthCheckResult.DEGRADED
+        assert "mcp" in record.details.lower() or "endpoint" in record.details.lower()
 
 
 # ---------------------------------------------------------------------------
@@ -333,8 +333,10 @@ class TestHealthStats:
         health_info = checker.get_agent_health("cmdb-agent")
         stats = health_info["health_stats"]
         assert stats["total_checks"] == 3
-        assert stats["uptime_percentage"] > 0
+        # cmdb-agent has an MCP URL → health check returns DEGRADED (network not verified),
+        # so uptime_percentage stays 0 while avg_response_time_ms is still measured.
         assert stats["avg_response_time_ms"] >= 0
+        assert stats.get("result_distribution", {}).get("degraded", 0) == 3
 
     def test_stats_empty_history(self, checker: AgentHealthChecker) -> None:
         """Stats with no history should return zeros."""

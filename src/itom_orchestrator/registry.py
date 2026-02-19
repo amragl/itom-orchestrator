@@ -117,61 +117,90 @@ def _build_default_agents() -> list[AgentRegistration]:
             agent_id="cmdb-agent",
             name="CMDB Agent",
             description=(
-                "Autonomous CMDB management agent. Performs CI queries, "
-                "relationship mapping, health audits, bulk updates, and "
-                "compliance checks against the ServiceNow CMDB."
+                "Autonomous CMDB management agent (snow-cmdb-agent). "
+                "Full CMDB domain owner: CI queries across all cmdb_ci* types, "
+                "health metrics, duplicate/stale detection, IRE rules, relationship "
+                "mapping, impact analysis, remediation lifecycle, and autonomous workflows. "
+                "Runs on streamable-HTTP at http://localhost:8002/mcp."
             ),
             domain=AgentDomain.CMDB,
             capabilities=[
                 AgentCapability(
-                    name="query_cis",
+                    name="cmdb_read",
                     domain=AgentDomain.CMDB,
-                    description="Query configuration items from the CMDB with filtering and pagination.",
+                    description=(
+                        "Query and analyse configuration items across the full cmdb_ci hierarchy: "
+                        "server, linux_server, win_server, database, application, network_gear, "
+                        "storage_device, computer, service."
+                    ),
                     input_schema={
                         "type": "object",
                         "properties": {
-                            "table": {"type": "string"},
+                            "ci_type": {"type": "string"},
                             "query": {"type": "string"},
-                            "fields": {"type": "array", "items": {"type": "string"}},
+                            "environment": {"type": "string"},
                             "limit": {"type": "integer"},
                         },
-                        "required": ["table"],
+                        "required": ["ci_type"],
                     },
                 ),
                 AgentCapability(
-                    name="update_ci",
+                    name="cmdb_write",
                     domain=AgentDomain.CMDB,
-                    description="Update a configuration item's attributes in the CMDB.",
+                    description=(
+                        "Remediate CMDB issues: create/monitor/execute/complete remediation "
+                        "requests, run maintenance workflows, reconcile CI data."
+                    ),
                     input_schema={
                         "type": "object",
                         "properties": {
-                            "sys_id": {"type": "string"},
-                            "table": {"type": "string"},
-                            "updates": {"type": "object"},
+                            "remediation_type": {"type": "string"},
+                            "risk_level": {"type": "string"},
+                            "affected_ci_sys_ids": {
+                                "type": "array",
+                                "items": {"type": "string"},
+                            },
                         },
-                        "required": ["sys_id", "table", "updates"],
+                        "required": ["remediation_type", "risk_level"],
+                    },
+                ),
+                AgentCapability(
+                    name="query_cis",
+                    domain=AgentDomain.CMDB,
+                    description="Query configuration items with filtering and pagination.",
+                    input_schema={
+                        "type": "object",
+                        "properties": {
+                            "ci_type": {"type": "string"},
+                            "query": {"type": "string"},
+                            "limit": {"type": "integer"},
+                        },
+                        "required": ["ci_type"],
                     },
                 ),
                 AgentCapability(
                     name="map_relationships",
                     domain=AgentDomain.CMDB,
-                    description="Map and traverse CI relationships in the CMDB.",
+                    description="Map and traverse CI relationships, including dependency trees and impact analysis.",
                 ),
                 AgentCapability(
                     name="cmdb_health_audit",
                     domain=AgentDomain.CMDB,
-                    description="Run health checks on CMDB data quality, staleness, and orphaned CIs.",
+                    description=(
+                        "Run health checks on CMDB data quality, staleness, duplicates, "
+                        "orphaned CIs, and IRE rules across all CI types."
+                    ),
                 ),
                 AgentCapability(
                     name="bulk_ci_operations",
                     domain=AgentDomain.CMDB,
-                    description="Perform bulk create, update, or delete operations on CIs.",
+                    description="Perform bulk maintenance operations on CIs via autonomous workflows.",
                 ),
             ],
-            mcp_server_url=None,
-            status=AgentStatus.OFFLINE,
+            mcp_server_url="http://localhost:8002/mcp",
+            status=AgentStatus.ONLINE,
             registered_at=now,
-            metadata={"project": "servicenow-cmdb-agent-mcp", "version": "0.1.0"},
+            metadata={"project": "snow-cmdb-agent", "version": "2.0.0", "port": 8002},
         ),
         AgentRegistration(
             agent_id="discovery-agent",

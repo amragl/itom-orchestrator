@@ -66,9 +66,11 @@ def _call_mcp_tool_sync(server_url: str, tool_name: str, arguments: dict[str, An
 # CI type keywords used to infer the CI class from a natural language message.
 # Include plural forms for whole-word matching.
 _CI_TYPE_KEYWORDS: dict[str, list[str]] = {
-    "server": ["server", "servers", "linux", "windows", "host", "hosts", "vm", "vms", "virtual machine"],
+    "linux_server": ["linux server", "linux servers", "linux host", "linux hosts", "linux machine"],
+    "win_server": ["windows server", "windows servers", "win server", "win servers"],
+    "server": ["server", "servers", "host", "hosts", "vm", "vms", "virtual machine"],
     "database": ["database", "databases", "db", "dbs", "oracle", "mysql", "postgres", "sql"],
-    "application": ["application", "applications", "app", "apps", "service", "services", "web app"],
+    "application": ["application", "applications", "app", "apps", "web app"],
     "network_gear": ["network", "switch", "switches", "router", "routers", "firewall", "firewalls", "load balancer"],
     "storage": ["storage", "san", "nas", "disk", "disks", "volume", "volumes"],
 }
@@ -295,25 +297,6 @@ def _format_cmdb_response(tool_name: str, raw_text: str) -> str:
             ci_label = "configuration items"
         return f"**{total}** {ci_label} found in the CMDB."
 
-    if tool_name == "check_server_health":
-        status = data.get("status", "unknown")
-        uptime = data.get("uptime", {}).get("formatted", "unknown")
-        lines = [f"**CMDB Health: {status.upper()}**", f"Uptime: {uptime}", ""]
-        for name, check in data.get("checks", {}).items():
-            check_status = check.get("status", "unknown")
-            icon = "OK" if check_status == "healthy" else "WARN"
-            lines.append(f"  [{icon}] **{name}**")
-            if name == "servicenow":
-                lines.append(f"       Instance: {check.get('instance', 'N/A')}")
-                lines.append(f"       Latency: {check.get('latency_ms', 'N/A')}ms")
-                lines.append(f"       Auth: {'valid' if check.get('auth_valid') else 'invalid'}")
-            elif name == "cache":
-                lines.append(f"       Hit rate: {check.get('hit_rate', 0)}% ({check.get('hits', 0)} hits / {check.get('misses', 0)} misses)")
-                lines.append(f"       Size: {check.get('size', 0)} entries, TTL: {check.get('ttl_seconds', 0)}s")
-            elif name == "session_pool":
-                lines.append(f"       Connections: {check.get('pool_connections', 'N/A')}, Max: {check.get('pool_maxsize', 'N/A')}")
-        return _to_chat_markdown(lines)
-
     if tool_name == "get_cmdb_health_metrics":
         ci_type = data.get("ci_type", "all")
         summary = data.get("summary", {})
@@ -451,7 +434,7 @@ def _format_cmdb_response(tool_name: str, raw_text: str) -> str:
 
     if tool_name == "search_configuration_items":
         if isinstance(data, dict):
-            results = data.get("result", data.get("results", data.get("items", [])))
+            results = data.get("records", data.get("result", data.get("results", data.get("items", []))))
             total = data.get("total_count", data.get("total", data.get("count", len(results))))
         elif isinstance(data, list):
             results = data
@@ -528,24 +511,6 @@ def _format_cmdb_response(tool_name: str, raw_text: str) -> str:
                 lines.append(f"  {i}. {name}")
         if isinstance(total, int) and total > 10:
             lines.append(f"\n  ... and {total - 10} more groups")
-        return _to_chat_markdown(lines)
-
-    if tool_name == "run_compliance_check":
-        lines = ["**CMDB Compliance Check**", ""]
-        if isinstance(data, dict):
-            overall = data.get("overall_status", data.get("status", "unknown"))
-            lines.append(f"  Overall: **{overall.upper()}**")
-            for k, v in data.items():
-                if k in ("overall_status", "status"):
-                    continue
-                if isinstance(v, dict):
-                    lines.append(f"\n  **{k.replace('_', ' ').title()}**")
-                    for sk, sv in v.items():
-                        lines.append(f"    {sk.replace('_', ' ').title()}: {sv}")
-                elif isinstance(v, list):
-                    lines.append(f"\n  **{k.replace('_', ' ').title()}**: {len(v)} items")
-                else:
-                    lines.append(f"  {k.replace('_', ' ').title()}: {v}")
         return _to_chat_markdown(lines)
 
     if tool_name == "get_cmdb_health_trend_report":
@@ -665,23 +630,6 @@ def _format_cmdb_response(tool_name: str, raw_text: str) -> str:
                     lines.append(f"  **{item}**")
         return _to_chat_markdown(lines)
 
-    if tool_name == "list_relationship_types_available":
-        lines = ["**Available Relationship Types**", ""]
-        if isinstance(data, dict):
-            rel_types = data.get("relationship_types", data.get("types", data))
-            if isinstance(rel_types, list):
-                for rt in rel_types:
-                    if isinstance(rt, dict):
-                        name = rt.get("name", rt.get("type", "unknown"))
-                        desc = rt.get("description", "")
-                        lines.append(f"  - **{name}**" + (f": {desc}" if desc else ""))
-                    else:
-                        lines.append(f"  - {rt}")
-            elif isinstance(rel_types, dict):
-                for name, info in rel_types.items():
-                    lines.append(f"  - **{name}**: {_format_dict_value(info)}")
-        return _to_chat_markdown(lines)
-
     if tool_name in ("list_ci_classes_with_ire", "get_ire_rules_for_class"):
         title = "CI Classes with IRE" if "list" in tool_name else "IRE Rules"
         lines = [f"**{title}**", ""]
@@ -787,51 +735,29 @@ def _make_cmdb_handler(server_url: str) -> Any:
         # Operational / MCP server health — only when explicitly asking
         # about the MCP server, not CMDB data health.
         elif "mcp" in message_lower and any(kw in message_lower for kw in ["health", "status", "check"]):
-            tool_name = "check_server_health"
+            tool_name = "health"
         elif any(kw in message_lower for kw in ["operational dashboard", "ops dashboard", "dashboard"]):
             tool_name = "get_operational_dashboard"
-        elif any(kw in message_lower for kw in ["prometheus", "prom metrics"]):
-            tool_name = "get_prometheus_metrics"
-        elif any(kw in message_lower for kw in ["capture snapshot", "health snapshot", "take snapshot"]):
-            tool_name = "capture_cmdb_health_snapshot"
-            ci_type = _infer_ci_type(message_lower)
-            if ci_type:
-                arguments = {"ci_type": ci_type}
-        elif any(kw in message_lower for kw in ["validate metrics", "verify metrics"]):
-            tool_name = "validate_cmdb_health_metrics"
-            ci_type = _infer_ci_type(message_lower)
-            if ci_type:
-                arguments = {"ci_type": ci_type}
 
         # Compliance & reconciliation
-        elif any(kw in message_lower for kw in ["compliance"]):
-            tool_name = "run_compliance_check"
-            ci_type = _infer_ci_type(message_lower)
-            if ci_type:
-                arguments = {"ci_type": ci_type}
         elif any(kw in message_lower for kw in ["reconcile", "reconciliation", "data drift"]):
             tool_name = "reconcile_cmdb_configuration_data"
             ci_type = _infer_ci_type(message_lower)
-            if ci_type:
-                arguments = {"ci_type": ci_type}
+            arguments = {"ci_type": ci_type or "server"}
         elif any(kw in message_lower for kw in ["remediate", "remediation", "fix data"]):
-            tool_name = "remediate_cmdb_data_issues"
+            tool_name = "reconcile_cmdb_configuration_data"
             ci_type = _infer_ci_type(message_lower) or "server"
-            arguments = {"issue_type": "missing_fields", "ci_type": ci_type, "action": "preview"}
+            arguments = {"ci_type": ci_type, "dry_run": True}
 
-        # Audit & activity (CMDB-specific audit tools)
-        elif any(kw in message_lower for kw in ["cmdb audit", "audit summary", "audit stats"]):
-            tool_name = "get_audit_summary"
+        # Audit & activity
+        elif any(kw in message_lower for kw in ["cmdb audit", "audit summary", "audit stats",
+                                                  "activity log", "recent activity", "agent status"]):
+            tool_name = "get_agent_status"
         elif any(kw in message_lower for kw in ["audit log", "audit entries", "audit history"]):
-            tool_name = "query_audit_log"
-            ci_type = _infer_ci_type(message_lower)
-            if ci_type:
-                arguments = {"ci_type": ci_type}
-        elif any(kw in message_lower for kw in ["activity log", "recent activity", "recent changes"]):
-            tool_name = "get_ci_activity_log"
-            ci_type = _infer_ci_type(message_lower)
-            if ci_type:
-                arguments = {"ci_type": ci_type}
+            _id = _extract_identifier(message)
+            if _id:
+                tool_name = "get_configuration_item_history"
+                arguments = {"ci_sys_id": _id}
 
         # Data quality checks — EOL / end-of-life routes to stale CI search
         # with a 365-day window to capture assets past their lifecycle.
@@ -855,36 +781,36 @@ def _make_cmdb_handler(server_url: str) -> Any:
             _id = _extract_identifier(message)
             if _id:
                 tool_name = "query_ci_dependency_tree"
-                arguments = {"sys_id": _id}
+                arguments = {"ci_sys_id": _id}
         elif any(kw in message_lower for kw in ["impact analysis", "impact of", "change impact"]):
             _id = _extract_identifier(message)
             if _id:
                 tool_name = "analyze_configuration_item_impact"
-                arguments = {"sys_id": _id, "change_type": "modify"}
+                arguments = {"ci_sys_id": _id}
         elif any(kw in message_lower for kw in ["relationship type", "relation type"]):
-            tool_name = "list_relationship_types_available"
+            tool_name = "list_ci_types"
         elif any(kw in message_lower for kw in ["relationship", "relations", "upstream", "downstream"]):
             _id = _extract_identifier(message)
             if _id:
-                tool_name = "query_ci_relationships"
-                arguments = {"sys_id": _id}
+                tool_name = "query_ci_dependency_tree"
+                arguments = {"ci_sys_id": _id}
 
         # CI details & history
         elif any(kw in message_lower for kw in ["history of", "change history", "changes to"]):
             _id = _extract_identifier(message)
             if _id:
                 tool_name = "get_configuration_item_history"
-                arguments = {"sys_id": _id}
+                arguments = {"ci_sys_id": _id}
         elif any(kw in message_lower for kw in ["compare state", "compare ci", "state comparison"]):
             _id = _extract_identifier(message)
             if _id:
-                tool_name = "compare_configuration_item_state"
-                arguments = {"sys_id": _id, "timestamp": "2025-01-01"}
+                tool_name = "get_configuration_item_history"
+                arguments = {"ci_sys_id": _id}
         elif any(kw in message_lower for kw in ["detail", "info about", "show ci"]):
             _id = _extract_identifier(message)
             if _id:
-                tool_name = "get_configuration_item_details"
-                arguments = {"identifier": _id}
+                tool_name = "search_configuration_items"
+                arguments = {"ci_type": _infer_ci_type(message_lower) or "server", "name": _id, "limit": 1}
 
         # IRE (Identification & Reconciliation)
         elif any(kw in message_lower for kw in ["ire rule", "identification rule"]):
@@ -894,9 +820,9 @@ def _make_cmdb_handler(server_url: str) -> Any:
         elif any(kw in message_lower for kw in ["ire class", "ci class", "classes with ire"]):
             tool_name = "list_ci_classes_with_ire"
         elif any(kw in message_lower for kw in ["validate ci", "validate against ire"]):
-            tool_name = "validate_ci_against_ire"
+            tool_name = "get_ire_rules_for_class"
             ci_type = _infer_ci_type(message_lower) or "server"
-            arguments = {"ci_type": ci_type, "fields": {}}
+            arguments = {"ci_class": f"cmdb_ci_{ci_type}"}
 
         # CI types listing
         elif any(kw in message_lower for kw in ["ci type", "ci class", "list types", "what types"]):
@@ -950,16 +876,19 @@ def _make_cmdb_handler(server_url: str) -> Any:
             if ci_type or name_hint:
                 tool_name = "search_configuration_items"
                 arguments = {"ci_type": ci_type, "limit": 10}
-                if name_hint:
-                    arguments["name"] = f"*{name_hint}*"
                 # Add environment filter when the message mentions an env
                 env = _extract_environment(message_lower)
                 if env:
                     arguments["environment"] = env
-                # Add custom_query for "missing field" phrases
+                # Add query for "missing field" phrases and name hints
+                # (search_configuration_items takes 'query' as encoded SN query, not 'name')
                 cq = _extract_custom_query(message_lower)
-                if cq:
-                    arguments["custom_query"] = cq
+                if cq and name_hint:
+                    arguments["query"] = f"nameLIKE{name_hint}^{cq}"
+                elif cq:
+                    arguments["query"] = cq
+                elif name_hint:
+                    arguments["query"] = f"nameLIKE{name_hint}"
             else:
                 # No CI type or name detected — show the dashboard as a
                 # helpful default instead of an empty search result.

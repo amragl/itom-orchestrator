@@ -148,10 +148,13 @@ class TestDefaultAgents:
             )
 
     def test_default_agents_start_offline(self) -> None:
-        """All default agents should start with OFFLINE status."""
+        """Default agents should start offline except cmdb-agent (has MCP URL, starts ONLINE)."""
         agents = _build_default_agents()
         for agent in agents:
-            assert agent.status == AgentStatus.OFFLINE
+            if agent.agent_id == "cmdb-agent":
+                assert agent.status == AgentStatus.ONLINE
+            else:
+                assert agent.status == AgentStatus.OFFLINE
 
 
 # ---------------------------------------------------------------------------
@@ -345,21 +348,22 @@ class TestSearch:
         assert results == []
 
     def test_search_by_status(self, registry: AgentRegistry) -> None:
-        """search_by_status OFFLINE should return all 6 default agents."""
+        """search_by_status OFFLINE should return 5 agents (cmdb-agent starts ONLINE)."""
         results = registry.search_by_status(AgentStatus.OFFLINE)
-        assert len(results) == 6
+        assert len(results) == 5
 
-    def test_search_by_status_online_empty(self, registry: AgentRegistry) -> None:
-        """search_by_status ONLINE should return empty (defaults are OFFLINE)."""
+    def test_search_by_status_online(self, registry: AgentRegistry) -> None:
+        """search_by_status ONLINE should return cmdb-agent (starts ONLINE with MCP URL)."""
         results = registry.search_by_status(AgentStatus.ONLINE)
-        assert results == []
+        assert len(results) == 1
+        assert results[0].agent_id == "cmdb-agent"
 
     def test_get_capabilities_for_domain(self, registry: AgentRegistry) -> None:
         """get_capabilities_for_domain should return all capabilities in a domain."""
         caps = registry.get_capabilities_for_domain(AgentDomain.CMDB)
         cap_names = [c.name for c in caps]
         assert "query_cis" in cap_names
-        assert "update_ci" in cap_names
+        assert "cmdb_write" in cap_names
         assert "map_relationships" in cap_names
 
     def test_get_summary(self, registry: AgentRegistry) -> None:
@@ -367,7 +371,8 @@ class TestSearch:
         summary = registry.get_summary()
         assert summary["total_agents"] == 6
         assert len(summary["agents_by_domain"]) == 6
-        assert summary["agents_by_status"]["offline"] == 6
+        assert summary["agents_by_status"]["offline"] == 5
+        assert summary["agents_by_status"].get("online", 0) == 1
         assert summary["total_capabilities"] > 0
         assert len(summary["agent_ids"]) == 6
 
