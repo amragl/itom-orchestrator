@@ -1,12 +1,18 @@
 {
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "ITOM Orchestrator routing rules configuration. Defines domain keyword mappings, capability mappings, priority rules, and fallback behavior for task routing.",
-  "updated_at": "2026-02-16T16:00:00Z",
+  "updated_at": "2026-02-19T00:00:00Z",
   "domains": {
     "cmdb": {
       "id": "cmdb",
       "name": "CMDB Operations",
-      "keywords": ["cmdb", "configuration", "asset", "ci", "computer", "server", "database"],
+      "keywords": [
+        "cmdb", "configuration item", "ci", "server", "database", "application",
+        "network gear", "storage", "computer", "linux server", "windows server",
+        "duplicate", "stale", "orphan", "health score", "reconcil", "ire",
+        "relationship", "impact", "ci history", "change history", "history of",
+        "dependency tree", "operational dashboard", "cmdb health"
+      ],
       "target_agent": "cmdb-agent",
       "priority": 1,
       "required_capability": "cmdb_read",
@@ -24,7 +30,7 @@
     "asset": {
       "id": "asset",
       "name": "Asset Management",
-      "keywords": ["asset", "inventory", "hardware", "lifecycle", "deprecation"],
+      "keywords": ["asset", "inventory", "hardware", "lifecycle", "deprecation", "license"],
       "target_agent": "asset-agent",
       "priority": 3,
       "required_capability": "asset_read",
@@ -32,8 +38,11 @@
     },
     "csa": {
       "id": "csa",
-      "name": "Certification and Service Account Management",
-      "keywords": ["csa", "certification", "service", "account", "catalog", "request", "workflow"],
+      "name": "Service Catalog and Account Management",
+      "keywords": [
+        "catalog", "request", "workflow", "service request", "ritm", "sctask",
+        "approval", "catalog item", "template", "pipeline", "req"
+      ],
       "target_agent": "csa-agent",
       "priority": 4,
       "required_capability": "service_catalog_read",
@@ -42,7 +51,10 @@
     "audit": {
       "id": "audit",
       "name": "IT Operations Management Auditing",
-      "keywords": ["audit", "compliance", "health", "report", "governance"],
+      "keywords": [
+        "audit", "compliance", "report", "governance",
+        "compliance check", "compliance score", "compliance report"
+      ],
       "target_agent": "itom-auditor",
       "priority": 5,
       "required_capability": "audit_read",
@@ -132,7 +144,7 @@
       "name": "CMDB Read Operations",
       "priority": 10,
       "domain": "cmdb",
-      "keywords": ["cmdb", "configuration", "read", "query"],
+      "keywords": ["cmdb", "configuration item", "ci", "query", "search ci"],
       "target_agent": "cmdb-agent",
       "required_capability": "cmdb_read",
       "enabled": true
@@ -142,13 +154,28 @@
       "name": "CMDB Write Operations",
       "priority": 9,
       "domain": "cmdb",
-      "keywords": ["cmdb", "create", "update", "delete", "write"],
+      "keywords": ["cmdb", "create ci", "update ci", "delete ci", "write ci", "reconcil"],
       "target_agent": "cmdb-agent",
       "required_capability": "cmdb_write",
       "enabled": true
     },
     {
       "id": "rule-003",
+      "name": "CMDB Data Quality",
+      "priority": 8,
+      "domain": "cmdb",
+      "keywords": [
+        "duplicate", "stale", "orphan", "health score", "ire",
+        "relationship", "impact", "dependency tree", "cmdb health",
+        "operational dashboard", "ci history", "change history",
+        "history of", "changes to", "reconcil"
+      ],
+      "target_agent": "cmdb-agent",
+      "required_capability": "cmdb_read",
+      "enabled": true
+    },
+    {
+      "id": "rule-004",
       "name": "Discovery Scans",
       "priority": 20,
       "domain": "discovery",
@@ -158,27 +185,27 @@
       "enabled": true
     },
     {
-      "id": "rule-004",
+      "id": "rule-005",
       "name": "Asset Inventory",
       "priority": 30,
       "domain": "asset",
-      "keywords": ["asset", "inventory", "hardware"],
+      "keywords": ["asset", "inventory", "hardware", "license"],
       "target_agent": "asset-agent",
       "required_capability": "asset_read",
       "enabled": true
     },
     {
-      "id": "rule-005",
+      "id": "rule-006",
       "name": "Service Catalog Operations",
       "priority": 40,
       "domain": "csa",
-      "keywords": ["catalog", "request", "workflow", "service"],
+      "keywords": ["catalog", "request", "workflow", "service request", "ritm", "sctask"],
       "target_agent": "csa-agent",
       "required_capability": "service_catalog_read",
       "enabled": true
     },
     {
-      "id": "rule-006",
+      "id": "rule-007",
       "name": "Audit and Compliance",
       "priority": 50,
       "domain": "audit",
@@ -188,7 +215,7 @@
       "enabled": true
     },
     {
-      "id": "rule-007",
+      "id": "rule-008",
       "name": "Documentation and Runbooks",
       "priority": 60,
       "domain": "documentation",

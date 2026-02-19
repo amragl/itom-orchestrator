@@ -5,6 +5,7 @@ Handles incoming chat messages from itom-chat-ui, routes them to the
 appropriate ITOM agent via the TaskRouter, and returns structured responses.
 
 This module implements ORCH-027: POST /api/chat endpoint for message routing.
+SE-011: Adds ClarificationResponse model and pending-clarification token store.
 """
 
 import logging
@@ -17,6 +18,10 @@ from pydantic import BaseModel, Field, field_validator
 from itom_orchestrator.logging_config import get_structured_logger
 from itom_orchestrator.models.agents import AgentDomain
 from itom_orchestrator.models.tasks import Task, TaskPriority, TaskStatus
+
+# Module-level store for pending clarifications.
+# Maps pending_message_token -> {original_message, session_id, created_at}
+_pending_clarifications: dict[str, dict[str, Any]] = {}
 
 logger: logging.LoggerAdapter[Any] = get_structured_logger(__name__)
 
@@ -92,15 +97,47 @@ class ChatErrorResponse(BaseModel):
     timestamp: str
 
 
+class ClarificationResponse(BaseModel):
+    """Response emitted when the router cannot disambiguate a message.
+
+    The client should present the question and options to the user and
+    then POST /api/chat/clarify with the chosen answer and the token.
+
+    Attributes:
+        message_id: Unique ID for this response.
+        response_type: Always "clarification".
+        question: The question to show the user.
+        options: Selectable option strings.
+        pending_message_token: Opaque token to reference the original message
+            in the /api/chat/clarify request.
+        session_id: Echoed from the request.
+        timestamp: When this response was generated.
+    """
+
+    message_id: str
+    response_type: str = "clarification"
+    question: str
+    options: list[str]
+    pending_message_token: str
+    session_id: str | None = None
+    timestamp: str
+
+
 def process_chat_message(
     request: ChatRequest,
     router: Any,
     executor: Any,
-) -> ChatResponse:
+) -> "ChatResponse | ClarificationResponse":
     """Process a chat message by routing it to the appropriate agent.
 
-    Creates a Task from the chat message, routes it via the TaskRouter,
-    executes it via the TaskExecutor, and returns a structured response.
+    Creates a Task from the chat message, checks for routing ambiguity,
+    routes it via the TaskRouter, executes it via the TaskExecutor, and
+    returns a structured response.
+
+    If the router detects an ambiguous query (two domains match at the same
+    priority), returns a ClarificationResponse instead of executing.  The
+    caller should surface the clarification question to the user and then
+    call process_clarified_message() with the user's answer.
 
     Args:
         request: The incoming chat request.
@@ -108,7 +145,8 @@ def process_chat_message(
         executor: TaskExecutor instance for execution.
 
     Returns:
-        ChatResponse with the agent's response.
+        ChatResponse with the agent's response, or ClarificationResponse
+        when the query is ambiguous.
 
     Raises:
         ValueError: If the domain is invalid.
@@ -159,6 +197,34 @@ def process_chat_message(
             }
         },
     )
+
+    # Check for routing ambiguity before attempting to route (SE-011)
+    clarification = router.detect_ambiguity(task)
+    if clarification is not None:
+        pending_token = uuid.uuid4().hex
+        _pending_clarifications[pending_token] = {
+            "original_message": request.message,
+            "session_id": request.session_id,
+            "created_at": datetime.now(UTC).isoformat(),
+        }
+        logger.info(
+            "Returning clarification request",
+            extra={
+                "extra_data": {
+                    "task_id": task_id,
+                    "competing_domains": clarification.competing_domains,
+                    "pending_token": pending_token,
+                }
+            },
+        )
+        return ClarificationResponse(
+            message_id=task_id,
+            question=clarification.question,
+            options=clarification.options,
+            pending_message_token=pending_token,
+            session_id=request.session_id,
+            timestamp=datetime.now(UTC).isoformat(),
+        )
 
     # Route the task
     decision = router.route(task)

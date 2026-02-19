@@ -7,9 +7,12 @@ incoming tasks to the most appropriate agent based on task attributes and
 agent capabilities.
 
 This module implements ORCH-008: Task Router -- domain-based routing engine.
+SE-010: Adds ambiguity detection that returns a ClarificationContext when
+two domains match at equal priority.
 """
 
 import logging
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
 
@@ -73,6 +76,25 @@ class AmbiguousRouteError(RoutingError):
 
 # Statuses that indicate an agent is available to receive tasks
 _AVAILABLE_STATUSES = frozenset({AgentStatus.ONLINE, AgentStatus.DEGRADED})
+
+
+@dataclass
+class ClarificationContext:
+    """Describes an ambiguous routing situation that requires user clarification.
+
+    Returned by TaskRouter._detect_ambiguity() when two or more domains
+    match at the same rule priority.  The chat endpoint uses this to return
+    a ClarificationResponse instead of attempting to route.
+
+    Attributes:
+        competing_domains: The domain values that tied (e.g. ["cmdb", "csa"]).
+        question: The question to present to the user.
+        options: Clickable option strings the user can choose from.
+    """
+
+    competing_domains: list[str] = field(default_factory=list)
+    question: str = ""
+    options: list[str] = field(default_factory=list)
 
 
 class RoutingDecision:
@@ -192,6 +214,20 @@ def _build_default_routing_rules() -> list[RoutingRule]:
         List of RoutingRule objects covering standard ITOM routing patterns.
     """
     return [
+        # Higher-priority CMDB rule for CI-specific compliance checks.
+        # "compliance check" in a CI/database/server context is a CMDB health
+        # operation, distinct from governance compliance reports (audit-domain).
+        # Priority 5 < 10 ensures cmdb wins and no ambiguity is triggered.
+        RoutingRule(
+            name="cmdb-ci-compliance",
+            priority=5,
+            domain=AgentDomain.CMDB,
+            keywords=[
+                "compliance check on",
+                "check compliance for",
+                "check compliance of",
+            ],
+        ),
         RoutingRule(
             name="cmdb-domain",
             priority=10,
@@ -203,6 +239,7 @@ def _build_default_routing_rules() -> list[RoutingRule]:
                 "dashboard", "metrics", "operational",
                 "impact", "dependency", "dependencies",
                 "ire", "reconcile", "remediate", "history of",
+                "change history", "get history", "ci history",
                 "ci type", "ci class", "data quality",
                 "eol", "end of life", "lifecycle", "criticality", "production",
                 "missing serial", "without serial", "missing owner",
@@ -311,6 +348,68 @@ class TaskRouter:
         )
         self._require_available = require_available
         self._routing_history: list[dict[str, Any]] = []
+
+    def detect_ambiguity(self, task: Task) -> "ClarificationContext | None":
+        """Check whether a task is ambiguous (two domains tie at same priority).
+
+        Evaluates all routing rules against the task and collects the set of
+        distinct domains that have at least one matching rule.  If two or
+        more domains match at the *same* minimum priority value, the query
+        is considered ambiguous.
+
+        No-ops when the task has an explicit target_agent set (the caller
+        already knows the destination).
+
+        Args:
+            task: The incoming task.
+
+        Returns:
+            ClarificationContext if ambiguous, None otherwise.
+        """
+        if task.target_agent:
+            return None
+
+        from itom_orchestrator.routing_config import CLARIFICATION_TEMPLATES
+
+        # Collect (priority, domain) pairs for all matching rules
+        matched: list[tuple[int, str]] = []
+        for rule in self._rules:
+            if rule.matches(task) and rule.domain:
+                matched.append((rule.priority, rule.domain.value))
+
+        if len(matched) < 2:
+            return None
+
+        # Find minimum priority (highest precedence)
+        min_priority = min(p for p, _ in matched)
+
+        # Collect distinct domains at that priority
+        top_domains = list({d for p, d in matched if p == min_priority})
+
+        if len(top_domains) < 2:
+            return None
+
+        # Look up clarification template
+        domain_pair = frozenset(top_domains[:2])
+        template = CLARIFICATION_TEMPLATES.get(domain_pair) or CLARIFICATION_TEMPLATES.get(None)
+        if template is None:
+            return None
+
+        logger.info(
+            "Ambiguous routing detected",
+            extra={
+                "extra_data": {
+                    "task_id": task.task_id,
+                    "competing_domains": top_domains,
+                }
+            },
+        )
+
+        return ClarificationContext(
+            competing_domains=top_domains,
+            question=str(template["question"]),
+            options=list(template["options"]),  # type: ignore[arg-type]
+        )
 
     def route(self, task: Task) -> RoutingDecision:
         """Route a task to the most appropriate agent.

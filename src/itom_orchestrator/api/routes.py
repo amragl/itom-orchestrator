@@ -17,12 +17,18 @@ This module implements ORCH-026, ORCH-027, and ORCH-028.
 
 import logging
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, Union
 
 from fastapi import APIRouter, HTTPException, Query
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 
-from itom_orchestrator.api.chat import ChatRequest, ChatResponse, process_chat_message
+from itom_orchestrator.api.chat import (
+    ChatRequest,
+    ChatResponse,
+    ClarificationResponse,
+    _pending_clarifications,
+    process_chat_message,
+)
 from itom_orchestrator.logging_config import get_structured_logger
 
 logger: logging.LoggerAdapter[Any] = get_structured_logger(__name__)
@@ -198,8 +204,8 @@ async def get_agent_health(
     return health_info
 
 
-@router.post("/chat", response_model=ChatResponse)
-async def post_chat(request: ChatRequest) -> ChatResponse:
+@router.post("/chat", response_model=Union[ChatResponse, ClarificationResponse])
+async def post_chat(request: ChatRequest) -> Union[ChatResponse, ClarificationResponse]:
     """Route a chat message to the appropriate ITOM agent.
 
     Receives a message from itom-chat-ui, routes it to the best agent
@@ -291,6 +297,117 @@ async def post_chat(request: ChatRequest) -> ChatResponse:
             detail={
                 "error_code": exc.error_code,
                 "error_message": exc.message,
+                "timestamp": datetime.now(UTC).isoformat(),
+            },
+        ) from exc
+
+
+class ClarifyRequest(BaseModel):
+    """Request body for POST /api/chat/clarify.
+
+    Attributes:
+        pending_message_token: Token returned with a ClarificationResponse.
+        clarification_answer: The user's selected option or free-text answer.
+        session_id: Optional session identifier.
+    """
+
+    pending_message_token: str
+    clarification_answer: str
+    session_id: str | None = None
+
+
+@router.post("/chat/clarify")
+async def post_chat_clarify(request: ClarifyRequest) -> ChatResponse:
+    """Resolve a pending clarification and route the original message.
+
+    Looks up the original message by pending_message_token, combines it
+    with the user's clarification answer, and routes through the normal
+    chat flow.
+
+    Error responses:
+    - 400: Token not found or expired, empty clarification answer
+    - 502: Agent routing or execution failure
+
+    Args:
+        request: Clarification answer with pending token.
+
+    Returns:
+        ChatResponse with the agent's response.
+    """
+    from itom_orchestrator.executor import ExecutionError, TaskTimeoutError
+    from itom_orchestrator.router import RoutingError
+    from itom_orchestrator.server import _get_executor, _get_router
+
+    # Retrieve the pending clarification
+    pending = _pending_clarifications.get(request.pending_message_token)
+    if pending is None:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error_code": "CLARIFICATION_TOKEN_NOT_FOUND",
+                "error_message": (
+                    f"No pending clarification found for token "
+                    f"'{request.pending_message_token}'. "
+                    "It may have already been resolved or expired."
+                ),
+            },
+        )
+
+    if not request.clarification_answer.strip():
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error_code": "CLARIFICATION_ANSWER_EMPTY",
+                "error_message": "clarification_answer must not be empty.",
+            },
+        )
+
+    # Remove from pending store
+    del _pending_clarifications[request.pending_message_token]
+
+    original_message = pending["original_message"]
+    session_id = request.session_id or pending.get("session_id")
+
+    # Combine original message with clarification answer for re-routing
+    combined_message = (
+        f"{original_message}\n[User clarified: {request.clarification_answer}]"
+    )
+
+    chat_request = ChatRequest(
+        message=combined_message,
+        session_id=session_id,
+    )
+
+    executor = _get_executor()
+    task_router = _get_router()
+
+    try:
+        response = process_chat_message(
+            request=chat_request,
+            router=task_router,
+            executor=executor,
+        )
+        # If for some reason it's still ambiguous after clarification, treat as
+        # an error rather than infinite loop.
+        if not isinstance(response, ChatResponse):
+            raise HTTPException(
+                status_code=502,
+                detail={
+                    "error_code": "CLARIFICATION_STILL_AMBIGUOUS",
+                    "error_message": "Could not resolve routing after clarification.",
+                },
+            )
+        return response
+
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    except (RoutingError, ExecutionError, TaskTimeoutError) as exc:
+        raise HTTPException(
+            status_code=502,
+            detail={
+                "error_code": getattr(exc, "error_code", "ROUTING_ERROR"),
+                "error_message": getattr(exc, "message", str(exc)),
                 "timestamp": datetime.now(UTC).isoformat(),
             },
         ) from exc

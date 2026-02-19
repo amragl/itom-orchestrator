@@ -91,9 +91,10 @@ class TestGetOrchestratorHealth:
         assert parsed.tzinfo is not None  # Must be timezone-aware
         assert parsed.tzinfo == UTC
 
-    def test_connected_agents_is_zero(self, test_config) -> None:  # type: ignore[no-untyped-def]
+    def test_connected_agents_includes_cmdb(self, test_config) -> None:  # type: ignore[no-untyped-def]
+        # cmdb-agent starts ONLINE (has MCP URL); all others start OFFLINE
         result = _get_orchestrator_health()
-        assert result["connected_agents"] == 0
+        assert result["connected_agents"] == 1
 
     def test_active_workflows_is_zero(self, test_config) -> None:  # type: ignore[no-untyped-def]
         result = _get_orchestrator_health()
@@ -121,8 +122,9 @@ class TestGetAgentRegistry:
         assert result["filters_applied"]["domain"] == "cmdb"
 
     def test_filter_by_status(self, test_config) -> None:  # type: ignore[no-untyped-def]
+        # cmdb-agent starts ONLINE; 5 agents start OFFLINE
         result = _get_agent_registry(status="offline")
-        assert result["count"] == 6
+        assert result["count"] == 5
 
     def test_filter_by_capability(self, test_config) -> None:  # type: ignore[no-untyped-def]
         result = _get_agent_registry(capability="query_cis")
@@ -162,8 +164,8 @@ class TestGetAgentDetails:
         result = _get_agent_details("cmdb-agent")
         assert result["agent_id"] == "cmdb-agent"
         assert result["domain"] == "cmdb"
-        assert result["capability_count"] == 5
-        assert len(result["capabilities"]) == 5
+        assert result["capability_count"] == 6
+        assert len(result["capabilities"]) == 6
         assert "description" in result
 
     def test_get_nonexistent_agent(self, test_config) -> None:  # type: ignore[no-untyped-def]

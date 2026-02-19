@@ -6,6 +6,9 @@ JSON file persistence. Allows routing behaviour to be changed
 without modifying code.
 
 This module implements ORCH-010: Routing Rules Configuration.
+
+Also contains CLARIFICATION_TEMPLATES used by the TaskRouter when two
+domains match at the same priority (SE-010: ambiguity detection).
 """
 
 import json
@@ -131,6 +134,58 @@ def load_routing_config(path: Path) -> RoutingConfig:
         },
     )
     return config
+
+
+# ---------------------------------------------------------------------------
+# Clarification templates for ambiguous routing (SE-010)
+# ---------------------------------------------------------------------------
+
+# Keys are frozensets of two domain strings that commonly conflict.
+# The special None key is the fallback for any unrecognised pair.
+CLARIFICATION_TEMPLATES: dict[frozenset | None, dict[str, object]] = {
+    frozenset(["cmdb", "csa"]): {
+        "question": "Are you looking to query the CMDB, or create a service request?",
+        "options": ["Search/manage CMDB CIs", "Create a service request"],
+    },
+    frozenset(["cmdb", "asset"]): {
+        "question": "Are you asking about CMDB configuration items, or hardware/software assets?",
+        "options": ["Configuration items (CMDB)", "Hardware/software assets"],
+    },
+    frozenset(["cmdb", "discovery"]): {
+        "question": "Would you like to query CMDB records, or check discovery scan status?",
+        "options": ["Query CMDB records", "Check discovery status"],
+    },
+    frozenset(["cmdb", "audit"]): {
+        "question": (
+            "Are you looking for CMDB data quality details "
+            "(duplicates, stale CIs, health metrics), "
+            "or a governance compliance audit report?"
+        ),
+        "options": ["CMDB health metrics / data quality (CMDB agent)", "Compliance audit report (Auditor)"],
+    },
+    frozenset(["csa", "audit"]): {
+        "question": "Are you creating a service request, or running an audit/compliance check?",
+        "options": ["Create service request", "Run audit or compliance check"],
+    },
+    frozenset(["csa", "documentation"]): {
+        "question": "Are you creating a service request, or looking for documentation/runbooks?",
+        "options": ["Create service request", "Find documentation or runbook"],
+    },
+    frozenset(["audit", "documentation"]): {
+        "question": "Are you running a compliance audit, or generating documentation?",
+        "options": ["Run compliance audit", "Generate documentation"],
+    },
+    None: {
+        "question": "I can help with several ITOM domains. Which area are you asking about?",
+        "options": [
+            "CMDB / Configuration Items",
+            "Discovery",
+            "Assets",
+            "Service Requests",
+            "Audit / Compliance",
+        ],
+    },
+}
 
 
 def validate_routing_config(config: RoutingConfig) -> list[str]:
