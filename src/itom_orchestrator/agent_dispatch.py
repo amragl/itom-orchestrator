@@ -121,7 +121,76 @@ def _extract_name_hint(message: str, ci_type: str | None) -> str | None:
     words = message.split()
     remaining = [w for w in words if w.lower() not in words_to_strip]
     hint = " ".join(remaining).strip()
-    return hint if hint else None
+    if not hint:
+        return None
+
+    # Guard: if hint looks like a description rather than a CI name, discard it.
+    # Real CI names are short (e.g. "web-server-01", "db-prod-03") and don't
+    # contain generic command / filter vocabulary.
+    _NON_NAME_WORDS = {
+        "create", "dashboard", "eol", "without", "missing", "by",
+        "criticality", "production", "development", "staging",
+        "environment", "all", "list", "search", "show", "find",
+        "generate", "report", "analyze", "display", "build", "make",
+    }
+    hint_words = hint.lower().split()
+    if len(hint_words) > 3 or any(w in _NON_NAME_WORDS for w in hint_words):
+        return None
+
+    return hint
+
+
+def _normalize_message(message: str) -> str:
+    """Strip leading /command prefixes from chat messages.
+
+    Users may type ``/ci-search production servers`` where the ``/ci-search``
+    prefix is a UI command, not part of the query.  This function removes
+    the leading ``/word`` token so downstream parsing only sees the query.
+    """
+    import re
+
+    return re.sub(r"^/\S+\s*", "", message).strip()
+
+
+def _extract_environment(message_lower: str) -> str | None:
+    """Extract a ServiceNow environment value from a chat message.
+
+    Maps common natural-language environment references to the canonical
+    ServiceNow ``environment`` field values used by ``search_configuration_items``.
+    """
+    if any(kw in message_lower for kw in ["production", " prod "]):
+        return "Production"
+    if any(kw in message_lower for kw in [" dev ", "development"]):
+        return "Development"
+    if any(kw in message_lower for kw in ["staging", " stage ", "uat"]):
+        return "Staging"
+    if any(kw in message_lower for kw in [" test ", "testing env"]):
+        return "Test"
+    return None
+
+
+def _extract_custom_query(message_lower: str) -> str | None:
+    """Build a ServiceNow encoded query for 'missing field' filters.
+
+    Recognises phrases like "without serial number", "no owner", etc. and
+    converts them to ``fieldISEMPTY`` encoded-query fragments joined with ``^``.
+    """
+    parts: list[str] = []
+    if any(kw in message_lower for kw in [
+        "without sn", "no sn", "missing sn",
+        "without serial", "no serial", "missing serial",
+        "without serial number", "no serial number",
+    ]):
+        parts.append("serial_numberISEMPTY")
+    if any(kw in message_lower for kw in [
+        "without owner", "no owner", "missing owner", "unowned",
+    ]):
+        parts.append("owned_byISEMPTY")
+    if any(kw in message_lower for kw in [
+        "without os", "no os", "missing os",
+    ]):
+        parts.append("osISEMPTY")
+    return "^".join(parts) if parts else None
 
 
 def _extract_identifier(message: str) -> str | None:
@@ -686,7 +755,7 @@ def _make_cmdb_handler(server_url: str) -> Any:
     """
 
     def handler(task: Task) -> dict[str, Any]:
-        message = task.description or task.title
+        message = _normalize_message(task.description or task.title)
         message_lower = message.lower()
 
         # Map chat intent to CMDB MCP tools based on keywords.
@@ -719,7 +788,7 @@ def _make_cmdb_handler(server_url: str) -> Any:
         # about the MCP server, not CMDB data health.
         elif "mcp" in message_lower and any(kw in message_lower for kw in ["health", "status", "check"]):
             tool_name = "check_server_health"
-        elif any(kw in message_lower for kw in ["operational dashboard", "ops dashboard"]):
+        elif any(kw in message_lower for kw in ["operational dashboard", "ops dashboard", "dashboard"]):
             tool_name = "get_operational_dashboard"
         elif any(kw in message_lower for kw in ["prometheus", "prom metrics"]):
             tool_name = "get_prometheus_metrics"
@@ -764,7 +833,13 @@ def _make_cmdb_handler(server_url: str) -> Any:
             if ci_type:
                 arguments = {"ci_type": ci_type}
 
-        # Data quality checks
+        # Data quality checks — EOL / end-of-life routes to stale CI search
+        # with a 365-day window to capture assets past their lifecycle.
+        elif any(kw in message_lower for kw in ["eol", "end of life", "end-of-life",
+                                                  "end of support", "lifecycle"]):
+            tool_name = "find_stale_configuration_items"
+            ci_type = _infer_ci_type(message_lower) or "server"
+            arguments = {"ci_type": ci_type, "days": 365}
         elif any(kw in message_lower for kw in ["stale", "outdated"]):
             tool_name = "find_stale_configuration_items"
             ci_type = _infer_ci_type(message_lower) or "server"
@@ -877,6 +952,14 @@ def _make_cmdb_handler(server_url: str) -> Any:
                 arguments = {"ci_type": ci_type, "limit": 10}
                 if name_hint:
                     arguments["name"] = f"*{name_hint}*"
+                # Add environment filter when the message mentions an env
+                env = _extract_environment(message_lower)
+                if env:
+                    arguments["environment"] = env
+                # Add custom_query for "missing field" phrases
+                cq = _extract_custom_query(message_lower)
+                if cq:
+                    arguments["custom_query"] = cq
             else:
                 # No CI type or name detected — show the dashboard as a
                 # helpful default instead of an empty search result.
