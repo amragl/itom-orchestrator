@@ -996,14 +996,27 @@ def _make_generic_handler(server_url: str, agent_name: str) -> Any:
                         tool_name = getattr(best_tool, "name", str(best_tool))
 
                         # Build minimal arguments: try common parameter names
-                        # that most query tools accept
+                        # that most query tools accept, then fall back to any
+                        # required parameter from the schema.
                         arguments: dict[str, Any] = {}
                         input_schema = getattr(best_tool, "inputSchema", {}) or {}
                         props = input_schema.get("properties", {})
-                        for param in ("query", "message", "text", "search", "filter"):
+                        required = input_schema.get("required", [])
+                        matched = False
+                        for param in ("query", "message", "text", "search", "filter",
+                                      "user_request", "request", "input", "prompt",
+                                      "description", "task", "command"):
                             if param in props:
                                 arguments[param] = message
+                                matched = True
                                 break
+                        # Fall back: use the first required string parameter
+                        if not matched:
+                            for param in required:
+                                param_schema = props.get(param, {})
+                                if param_schema.get("type") in ("string", None, ""):
+                                    arguments[param] = message
+                                    break
 
                         result = await client.call_tool(tool_name, arguments)
                         return tool_name, result
