@@ -28,6 +28,31 @@ logger: logging.LoggerAdapter[Any] = get_structured_logger(__name__)
 # Client is async. We can't use asyncio.run() inside FastAPI's event loop.
 _thread_pool = ThreadPoolExecutor(max_workers=4)
 
+# Stores the last CMDB search result per session so the CSA handler can
+# build remediation requests with real CI sys_ids.  Keyed by session_id.
+# Value: {ci_sys_ids: [...], ci_type: str, environment: str, query: str, ci_names: [...]}
+_cmdb_session_context: dict[str, dict[str, Any]] = {}
+
+
+def _extract_mcp_text(result: Any) -> str:
+    """Extract text content from a FastMCP CallToolResult.
+
+    Handles the various shapes that MCP responses can take: objects with
+    .content lists of TextContent, plain lists, or raw values.
+    """
+    content_items = getattr(result, "content", None)
+    if content_items is None:
+        content_items = result if isinstance(result, list) else [result]
+    texts = []
+    for item in content_items:
+        if hasattr(item, "text"):
+            texts.append(item.text)
+        elif isinstance(item, dict) and "text" in item:
+            texts.append(item["text"])
+        else:
+            texts.append(str(item))
+    return "\n".join(texts)
+
 
 def _call_mcp_tool_sync(server_url: str, tool_name: str, arguments: dict[str, Any]) -> Any:
     """Call an MCP tool on a remote server synchronously.
@@ -278,12 +303,157 @@ def _to_chat_markdown(lines: list[str]) -> str:
     return "\n".join(out)
 
 
-def _format_cmdb_response(tool_name: str, raw_text: str) -> str:
-    """Format raw CMDB tool JSON into a human-readable chat response."""
+def _sn_ci_link(instance_url: str, table: str, sys_id: str) -> str:
+    """Build a ServiceNow navigation URL for a CI record."""
+    return f"{instance_url.rstrip('/')}/nav_to.do?uri={table}.do%3Fsys_id%3D{sys_id}"
+
+
+def _ci_type_label(ci_type: str) -> str:
+    """Human-readable label for a CI type (e.g. 'linux_server' → 'Linux server')."""
+    return ci_type.replace("cmdb_ci_", "").replace("_", " ")
+
+
+def _build_suggested_actions(
+    tool_name: str,
+    data: Any = None,
+    query_context: dict[str, Any] | None = None,
+) -> list[dict[str, str]]:
+    """Build context-aware suggested follow-up actions based on the tool and results.
+
+    Args:
+        tool_name: The CMDB tool that was called.
+        data: The parsed JSON response data.
+        query_context: Original query parameters (ci_type, environment, query, etc.).
+
+    Returns:
+        Up to 3 suggested actions as ``[{label, message}]``.
+    """
+    ctx = query_context or {}
+    ci_type = ctx.get("ci_type", "")
+    ci_label = _ci_type_label(ci_type) if ci_type else "CI"
+    ci_label_plural = ci_label + "s"
+    environment = ctx.get("environment", "")
+    custom_query = ctx.get("query", "")
+    has_missing_serial = "serial_numberISEMPTY" in custom_query
+    has_missing_owner = "owned_byISEMPTY" in custom_query
+    has_missing_os = "osISEMPTY" in custom_query
+
+    if tool_name == "search_configuration_items":
+        actions: list[dict[str, str]] = []
+        env_suffix = f" in {environment}" if environment else ""
+        # Missing-field queries → resolution-oriented actions
+        if has_missing_serial:
+            actions.append({"label": "Run discovery", "message": f"Run discovery on {ci_label_plural} to populate serial numbers"})
+            actions.append({
+                "label": "Create fix request",
+                "message": f"Create a service request asking CI owners to update missing serial numbers on {ci_label_plural}{env_suffix}",
+                "agent_target": "csa-agent",
+            })
+            actions.append({"label": "Find stale CIs", "message": f"Find stale {ci_label_plural} that may need decommissioning"})
+        elif has_missing_owner:
+            actions.append({"label": "Run discovery", "message": f"Run discovery on {ci_label_plural} to find owners"})
+            actions.append({
+                "label": "Create fix request",
+                "message": f"Create a service request to assign owners to unowned {ci_label_plural}{env_suffix}",
+                "agent_target": "csa-agent",
+            })
+            actions.append({"label": "Check health", "message": f"Show CMDB health metrics for {ci_type or 'server'}"})
+        elif has_missing_os:
+            actions.append({"label": "Run discovery", "message": f"Run discovery on {ci_label_plural} to detect OS"})
+            actions.append({
+                "label": "Create fix request",
+                "message": f"Create a service request asking CI owners to update missing OS information on {ci_label_plural}{env_suffix}",
+                "agent_target": "csa-agent",
+            })
+            actions.append({"label": "Check health", "message": f"Show CMDB health metrics for {ci_type or 'server'}"})
+        else:
+            # General search → deeper analysis
+            env_suffix = f" in {environment}" if environment else ""
+            actions.append({"label": "Check health", "message": f"Show CMDB health metrics for {ci_type or 'server'}"})
+            actions.append({"label": "Find missing data", "message": f"Show {ci_label_plural}{env_suffix} with missing serial numbers"})
+            actions.append({"label": "Find stale", "message": f"Find stale {ci_label_plural}{env_suffix}"})
+        return actions[:3]
+
+    if tool_name == "get_cmdb_health_metrics" and isinstance(data, dict):
+        actions = []
+        quality = data.get("data_quality_kpis", {})
+        discovery = data.get("discovery_kpis", {})
+        relationships = data.get("relationship_kpis", {})
+        # Drill into the worst issues found
+        for field_key in ("missing_serial_number", "missing_os", "missing_owner"):
+            field_data = quality.get(field_key, {})
+            count = field_data.get("count", 0) if isinstance(field_data, dict) else 0
+            if count > 0:
+                label = field_key.replace("missing_", "").replace("_", " ")
+                actions.append({"label": f"{count} missing {label}", "message": f"Show {ci_label_plural} with missing {label}"})
+        stale_90 = discovery.get("stale_90_plus_days", {})
+        stale_count = stale_90.get("count", 0) if isinstance(stale_90, dict) else 0
+        if stale_count > 0:
+            actions.append({"label": f"{stale_count} stale CIs", "message": f"Show stale {ci_label_plural} not updated in 90+ days"})
+        orphans = relationships.get("orphan_cis", {})
+        orphan_count = orphans.get("count", 0) if isinstance(orphans, dict) else 0
+        if orphan_count > 0:
+            actions.append({"label": f"{orphan_count} orphan CIs", "message": f"Show {ci_label_plural} with no relationships"})
+        if not actions:
+            actions = [
+                {"label": "Health trend", "message": "Show CMDB health trend report"},
+                {"label": "Run reconciliation", "message": "Reconcile CMDB configuration data"},
+                {"label": "Find duplicates", "message": f"Find duplicate {ci_label_plural}"},
+            ]
+        return actions[:3]
+
+    if tool_name == "find_stale_configuration_items":
+        return [
+            {"label": "Run discovery", "message": f"Run discovery on stale {ci_label_plural} to refresh data"},
+            {"label": "Reconcile data", "message": f"Reconcile CMDB data for {ci_type or 'server'}"},
+            {"label": "Check health", "message": f"Show CMDB health metrics for {ci_type or 'server'}"},
+        ]
+
+    if tool_name == "find_duplicate_configuration_items":
+        return [
+            {"label": "Reconcile data", "message": f"Reconcile CMDB data for {ci_type or 'server'}"},
+            {"label": "Check health", "message": f"Show CMDB health metrics for {ci_type or 'server'}"},
+            {"label": "Find stale CIs", "message": f"Find stale {ci_label_plural}"},
+        ]
+
+    if tool_name == "get_cmdb_health_trend_report":
+        return [
+            {"label": "Current health", "message": f"Show CMDB health metrics for {ci_type or 'server'}"},
+            {"label": "Find stale CIs", "message": f"Find stale {ci_label_plural}"},
+            {"label": "Run reconciliation", "message": "Reconcile CMDB configuration data"},
+        ]
+
+    if tool_name == "get_operational_dashboard":
+        return [
+            {"label": "Server health", "message": "Show CMDB health metrics for server"},
+            {"label": "Find stale CIs", "message": "Find stale configuration items"},
+            {"label": "Find duplicates", "message": "Find duplicate configuration items"},
+        ]
+
+    # Default fallback
+    return [
+        {"label": "CMDB health", "message": "Show me CMDB health metrics"},
+        {"label": "Search CIs", "message": "Search for configuration items"},
+        {"label": "Dashboard", "message": "Show the operational dashboard"},
+    ]
+
+
+def _format_cmdb_response(
+    tool_name: str,
+    raw_text: str,
+    sn_instance: str = "",
+    query_context: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Format raw CMDB tool JSON into a human-readable chat response.
+
+    Returns a dict with ``markdown`` (str) and ``suggested_actions`` (list).
+    """
+    ctx = query_context or {}
+
     try:
         data = json.loads(raw_text)
     except (json.JSONDecodeError, TypeError):
-        return raw_text
+        return {"markdown": raw_text, "suggested_actions": _build_suggested_actions(tool_name, data=None, query_context=ctx)}
 
     if tool_name == "_count_only":
         # Count-only mode: just show the total from a search result
@@ -295,7 +465,10 @@ def _format_cmdb_response(tool_name: str, raw_text: str) -> str:
         else:
             total = 0
             ci_label = "configuration items"
-        return f"**{total}** {ci_label} found in the CMDB."
+        return {
+            "markdown": f"**{total}** {ci_label} found in the CMDB.",
+            "suggested_actions": _build_suggested_actions("search_configuration_items", data=data, query_context=ctx),
+        }
 
     if tool_name == "get_cmdb_health_metrics":
         ci_type = data.get("ci_type", "all")
@@ -385,7 +558,7 @@ def _format_cmdb_response(tool_name: str, raw_text: str) -> str:
                 else:
                     lines.append(f"  - {issue}")
 
-        return _to_chat_markdown(lines)
+        return {"markdown": _to_chat_markdown(lines), "suggested_actions": _build_suggested_actions(tool_name, data=data, query_context=ctx)}
 
     if tool_name == "get_operational_dashboard":
         lines = ["**CMDB Operational Dashboard**", ""]
@@ -417,7 +590,7 @@ def _format_cmdb_response(tool_name: str, raw_text: str) -> str:
                 else:
                     lines.append(f"  {values}")
                 lines.append("")
-        return _to_chat_markdown(lines)
+        return {"markdown": _to_chat_markdown(lines), "suggested_actions": _build_suggested_actions(tool_name, data=data, query_context=ctx)}
 
     if tool_name == "get_audit_summary":
         lines = ["**CMDB Audit Summary**", ""]
@@ -430,42 +603,60 @@ def _format_cmdb_response(tool_name: str, raw_text: str) -> str:
                     lines.append("")
                 else:
                     lines.append(f"  {k.replace('_', ' ').title()}: {v}")
-        return _to_chat_markdown(lines)
+        return {"markdown": _to_chat_markdown(lines), "suggested_actions": _build_suggested_actions(tool_name, data=data, query_context=ctx)}
 
     if tool_name == "search_configuration_items":
         if isinstance(data, dict):
             results = data.get("records", data.get("result", data.get("results", data.get("items", []))))
             total = data.get("total_count", data.get("total", data.get("count", len(results))))
+            ci_types_searched = data.get("ci_types_searched", [])
         elif isinstance(data, list):
             results = data
             total = len(results)
+            ci_types_searched = []
         else:
-            return raw_text
+            return {"markdown": raw_text, "suggested_actions": _build_suggested_actions(tool_name, data=data, query_context=ctx)}
 
-        lines = [f"**Found {total} configuration item(s)**", ""]
-        for i, ci in enumerate(results[:15], 1):
-            if isinstance(ci, dict):
-                name = ci.get("name", ci.get("display_name", "Unnamed"))
-                ci_class = ci.get("sys_class_name", ci.get("ci_type", ""))
-                op_status = ci.get("operational_status", "")
-                ip = ci.get("ip_address", "")
-                os_name = ci.get("os", "")
-                line = f"  {i}. **{name}**"
-                details = []
-                if ci_class:
-                    details.append(ci_class)
-                if os_name:
-                    details.append(os_name)
-                if op_status:
-                    details.append(f"status: {op_status}")
-                if ip:
-                    details.append(ip)
-                if details:
-                    line += f"  ({', '.join(details)})"
-                lines.append(line)
+        # Build a brief summary header
+        ci_label = ci_types_searched[0] if ci_types_searched else ""
+        if ci_label:
+            ci_label = ci_label.replace("cmdb_ci_", "").replace("_", " ").title() + "s"
+        header = f"**{total} {ci_label}**" if ci_label else f"**{total} Configuration Item(s)**"
+        lines = [header, ""]
+
+        # Render as a markdown table
+        if results:
+            lines.append("| # | Name | Class | OS | Status |")
+            lines.append("|---|------|-------|----|--------|")
+            for i, ci in enumerate(results[:15], 1):
+                if isinstance(ci, dict):
+                    name = ci.get("name", ci.get("display_name", "Unnamed"))
+                    sys_id = ci.get("sys_id", "")
+                    ci_class = ci.get("sys_class_name", ci.get("ci_type", ""))
+                    table = ci_class if ci_class else "cmdb_ci"
+                    os_name = ci.get("os", "")
+                    op_status = ci.get("operational_status", "")
+                    # Build CI name as SN link if instance URL is available
+                    if sn_instance and sys_id:
+                        name_cell = f"[{name}]({_sn_ci_link(sn_instance, table, sys_id)})"
+                    else:
+                        name_cell = f"**{name}**"
+                    lines.append(
+                        f"| {i} | {name_cell} | {ci_class or '—'} | {os_name or '—'} | {op_status or '—'} |"
+                    )
         if isinstance(total, int) and total > 15:
-            lines.append(f"\n  ... and {total - 15} more")
-        return _to_chat_markdown(lines)
+            lines.append(f"\n*... and {total - 15} more*")
+        # "Show all listed" link — filters to the specific CIs returned
+        if sn_instance and results:
+            from urllib.parse import quote
+            ci_table = ci_types_searched[0] if ci_types_searched else "cmdb_ci"
+            sys_ids = [ci.get("sys_id", "") for ci in results if isinstance(ci, dict) and ci.get("sys_id")]
+            if sys_ids:
+                query = f"sys_idIN{','.join(sys_ids)}"
+                sn_list_url = f"{sn_instance.rstrip('/')}/nav_to.do?uri={ci_table}_list.do%3Fsysparm_query%3D{quote(query)}"
+                lines.append("")
+                lines.append(f"[Show all listed in ServiceNow]({sn_list_url})")
+        return {"markdown": "\n".join(lines), "suggested_actions": _build_suggested_actions(tool_name, data=data, query_context=ctx)}
 
     if tool_name == "find_stale_configuration_items":
         if isinstance(data, dict):
@@ -478,20 +669,29 @@ def _format_cmdb_response(tool_name: str, raw_text: str) -> str:
             total = len(results)
             cutoff = ""
         else:
-            return raw_text
-        header = f"**Found {total} stale CI(s)**"
+            return {"markdown": raw_text, "suggested_actions": _build_suggested_actions(tool_name, data=data, query_context=ctx)}
+        header = f"**{total} Stale CI(s)**"
         if cutoff:
-            header += f"  (not updated since {cutoff})"
+            header += f" — not updated since {cutoff}"
         lines = [header, ""]
-        for i, ci in enumerate(results[:10], 1):
-            if isinstance(ci, dict):
-                name = ci.get("name", "Unnamed")
-                updated = ci.get("sys_updated_on", "")
-                detail = f"  (last updated: {updated})" if updated else ""
-                lines.append(f"  {i}. {name}{detail}")
+        if results:
+            lines.append("| # | Name | Class | Last Updated |")
+            lines.append("|---|------|-------|-------------|")
+            for i, ci in enumerate(results[:10], 1):
+                if isinstance(ci, dict):
+                    name = ci.get("name", "Unnamed")
+                    sys_id = ci.get("sys_id", "")
+                    ci_class = ci.get("sys_class_name", "")
+                    table = ci_class if ci_class else "cmdb_ci"
+                    updated = ci.get("sys_updated_on", "—")
+                    if sn_instance and sys_id:
+                        name_cell = f"[{name}]({_sn_ci_link(sn_instance, table, sys_id)})"
+                    else:
+                        name_cell = f"**{name}**"
+                    lines.append(f"| {i} | {name_cell} | {ci_class or '—'} | {updated} |")
         if isinstance(total, int) and total > 10:
-            lines.append(f"\n  ... and {total - 10} more")
-        return _to_chat_markdown(lines)
+            lines.append(f"\n*... and {total - 10} more*")
+        return {"markdown": "\n".join(lines), "suggested_actions": _build_suggested_actions(tool_name, data=data, query_context=ctx)}
 
     if tool_name == "find_duplicate_configuration_items":
         if isinstance(data, dict):
@@ -500,23 +700,27 @@ def _format_cmdb_response(tool_name: str, raw_text: str) -> str:
             total = data.get("total_groups", data.get("duplicate_count", len(groups) if isinstance(groups, list) else 0))
             match_field = data.get("match_field", "name")
         else:
-            return raw_text
-        lines = [f"**Found {total} duplicate group(s)** (matched by {match_field})", ""]
-        if isinstance(groups, list):
+            return {"markdown": raw_text, "suggested_actions": _build_suggested_actions(tool_name, data=data, query_context=ctx)}
+        lines = [f"**{total} Duplicate Group(s)** — matched by {match_field}", ""]
+        if isinstance(groups, list) and groups:
+            lines.append("| # | Name | Copies |")
+            lines.append("|---|------|--------|")
             for i, grp in enumerate(groups[:10], 1):
                 if isinstance(grp, dict):
                     val = grp.get("value", grp.get("name", "Unknown"))
                     cnt = grp.get("count", len(grp.get("cis", [])))
-                    lines.append(f"  {i}. **{val}** — {cnt} copies")
+                    lines.append(f"| {i} | **{val}** | {cnt} |")
                 else:
-                    lines.append(f"  {i}. {grp}")
+                    lines.append(f"| {i} | {grp} | — |")
         elif isinstance(groups, dict):
+            lines.append("| # | Name | Copies |")
+            lines.append("|---|------|--------|")
             for i, (name, cis) in enumerate(list(groups.items())[:10], 1):
                 count = len(cis) if isinstance(cis, list) else "?"
-                lines.append(f"  {i}. **{name}** — {count} copies")
+                lines.append(f"| {i} | **{name}** | {count} |")
         if isinstance(total, int) and total > 10:
-            lines.append(f"\n  ... and {total - 10} more groups")
-        return _to_chat_markdown(lines)
+            lines.append(f"\n*... and {total - 10} more groups*")
+        return {"markdown": "\n".join(lines), "suggested_actions": _build_suggested_actions(tool_name, data=data, query_context=ctx)}
 
     if tool_name == "get_cmdb_health_trend_report":
         lines = ["**CMDB Health Trend Report**", ""]
@@ -535,7 +739,7 @@ def _format_cmdb_response(tool_name: str, raw_text: str) -> str:
             if isinstance(trends, dict):
                 for k, v in trends.items():
                     lines.append(f"  {k.replace('_', ' ').title()}: {_format_dict_value(v)}")
-        return _to_chat_markdown(lines)
+        return {"markdown": _to_chat_markdown(lines), "suggested_actions": _build_suggested_actions(tool_name, data=data, query_context=ctx)}
 
     if tool_name == "reconcile_cmdb_configuration_data":
         lines = ["**CMDB Data Reconciliation**", ""]
@@ -553,7 +757,7 @@ def _format_cmdb_response(tool_name: str, raw_text: str) -> str:
                             if isinstance(item, dict):
                                 lines.append(f"    - {item.get('name', item.get('sys_id', str(item)))}")
                     lines.append("")
-        return _to_chat_markdown(lines)
+        return {"markdown": _to_chat_markdown(lines), "suggested_actions": _build_suggested_actions(tool_name, data=data, query_context=ctx)}
 
     if tool_name == "query_ci_dependency_tree":
         lines = ["**CI Dependency Tree**", ""]
@@ -572,7 +776,7 @@ def _format_cmdb_response(tool_name: str, raw_text: str) -> str:
                         lines.append(f"  {indent}{'└─' if depth else '├─'} {name} ({rel})")
             total = data.get("total_nodes", len(tree) if isinstance(tree, list) else 0)
             lines.append(f"\n  Total nodes: {total}")
-        return _to_chat_markdown(lines)
+        return {"markdown": _to_chat_markdown(lines), "suggested_actions": _build_suggested_actions(tool_name, data=data, query_context=ctx)}
 
     if tool_name == "analyze_configuration_item_impact":
         lines = ["**CI Impact Analysis**", ""]
@@ -591,7 +795,7 @@ def _format_cmdb_response(tool_name: str, raw_text: str) -> str:
                         name = item.get("name", "unknown")
                         svc = item.get("sys_class_name", "")
                         lines.append(f"    - {name} ({svc})" if svc else f"    - {name}")
-        return _to_chat_markdown(lines)
+        return {"markdown": _to_chat_markdown(lines), "suggested_actions": _build_suggested_actions(tool_name, data=data, query_context=ctx)}
 
     if tool_name == "get_configuration_item_history":
         lines = ["**CI Change History**", ""]
@@ -615,7 +819,7 @@ def _format_cmdb_response(tool_name: str, raw_text: str) -> str:
                         if user:
                             line += f" (by {user})"
                         lines.append(line)
-        return _to_chat_markdown(lines)
+        return {"markdown": _to_chat_markdown(lines), "suggested_actions": _build_suggested_actions(tool_name, data=data, query_context=ctx)}
 
     if tool_name == "list_ci_types":
         lines = ["**Available CI Types**", ""]
@@ -633,7 +837,7 @@ def _format_cmdb_response(tool_name: str, raw_text: str) -> str:
                     lines.append(f"  **{item.get('name', item.get('type', str(item)))}**")
                 else:
                     lines.append(f"  **{item}**")
-        return _to_chat_markdown(lines)
+        return {"markdown": _to_chat_markdown(lines), "suggested_actions": _build_suggested_actions(tool_name, data=data, query_context=ctx)}
 
     if tool_name in ("list_ci_classes_with_ire", "get_ire_rules_for_class"):
         title = "CI Classes with IRE" if "list" in tool_name else "IRE Rules"
@@ -648,7 +852,7 @@ def _format_cmdb_response(tool_name: str, raw_text: str) -> str:
                     lines.append(f"  - {name}")
                 else:
                     lines.append(f"  - {item}")
-        return _to_chat_markdown(lines)
+        return {"markdown": _to_chat_markdown(lines), "suggested_actions": _build_suggested_actions(tool_name, data=data, query_context=ctx)}
 
     if tool_name in ("query_audit_log", "get_ci_activity_log"):
         title = "Audit Log" if "audit" in tool_name else "CI Activity Log"
@@ -669,7 +873,7 @@ def _format_cmdb_response(tool_name: str, raw_text: str) -> str:
         elif isinstance(data, dict):
             for k, v in data.items():
                 lines.append(f"  {k.replace('_', ' ').title()}: {_format_dict_value(v)}")
-        return _to_chat_markdown(lines)
+        return {"markdown": _to_chat_markdown(lines), "suggested_actions": _build_suggested_actions(tool_name, data=data, query_context=ctx)}
 
     # Generic fallback: format JSON keys as a readable summary
     if isinstance(data, dict):
@@ -689,9 +893,9 @@ def _format_cmdb_response(tool_name: str, raw_text: str) -> str:
                         lines.append(f"    - {item}")
             else:
                 lines.append(f"  {label}: {_format_dict_value(v)}")
-        return _to_chat_markdown(lines)
+        return {"markdown": _to_chat_markdown(lines), "suggested_actions": _build_suggested_actions(tool_name, data=data, query_context=ctx)}
 
-    return raw_text
+    return {"markdown": raw_text, "suggested_actions": _build_suggested_actions(tool_name, data=data, query_context=ctx)}
 
 
 def _make_cmdb_handler(server_url: str) -> Any:
@@ -915,33 +1119,45 @@ def _make_cmdb_handler(server_url: str) -> Any:
 
         try:
             result = _call_mcp_tool_sync(server_url, tool_name, arguments)
-
-            # FastMCP Client returns a CallToolResult with a .content list
-            # of TextContent/ImageContent/etc objects. Extract text from them.
-            content_items = getattr(result, "content", None)
-            if content_items is None:
-                # Fallback: maybe it's already a list or plain value
-                content_items = result if isinstance(result, list) else [result]
-
-            texts = []
-            for item in content_items:
-                if hasattr(item, "text"):
-                    texts.append(item.text)
-                elif isinstance(item, dict) and "text" in item:
-                    texts.append(item["text"])
-                else:
-                    texts.append(str(item))
-
-            raw_response = "\n".join(texts)
+            raw_response = _extract_mcp_text(result)
+            sn_instance = get_config().sn_instance
             if count_only:
-                formatted = _format_cmdb_response("_count_only", raw_response)
+                result = _format_cmdb_response("_count_only", raw_response, sn_instance=sn_instance, query_context=arguments)
             else:
-                formatted = _format_cmdb_response(tool_name, raw_response)
+                result = _format_cmdb_response(tool_name, raw_response, sn_instance=sn_instance, query_context=arguments)
+
+            # Store CMDB context for cross-agent remediation requests
+            if tool_name == "search_configuration_items":
+                session_id = task.parameters.get("session_id", "") or ""
+                if session_id:
+                    try:
+                        data = json.loads(raw_response)
+                        if isinstance(data, dict):
+                            records = data.get("records", data.get("result", data.get("results", data.get("items", []))))
+                            if records:
+                                ci_sys_ids = [r.get("sys_id", "") for r in records if isinstance(r, dict) and r.get("sys_id")]
+                                ci_names = [r.get("name", "") for r in records if isinstance(r, dict) and r.get("name")]
+                                _cmdb_session_context[session_id] = {
+                                    "ci_sys_ids": ci_sys_ids,
+                                    "ci_names": ci_names,
+                                    "ci_records": records,
+                                    "ci_type": arguments.get("ci_type", ""),
+                                    "environment": arguments.get("environment", ""),
+                                    "query": arguments.get("query", ""),
+                                    "count": len(records),
+                                }
+                                # Cap dict size to prevent unbounded growth
+                                if len(_cmdb_session_context) > 500:
+                                    oldest = next(iter(_cmdb_session_context))
+                                    del _cmdb_session_context[oldest]
+                    except (json.JSONDecodeError, TypeError):
+                        pass
 
             return {
-                "agent_response": formatted,
+                "agent_response": result["markdown"],
                 "tool_used": tool_name,
                 "source": "cmdb-mcp-server",
+                "suggested_actions": result["suggested_actions"],
             }
 
         except Exception as exc:
@@ -965,6 +1181,77 @@ def _format_csa_response(tool_name: str, raw_text: str) -> str:
     try:
         data = json.loads(raw_text)
     except (json.JSONDecodeError, TypeError):
+        return raw_text
+
+    if tool_name == "create_service_request":
+        if isinstance(data, dict):
+            success = data.get("success", False)
+            req_number = data.get("req_number", "")
+            req_sys_id = data.get("req_sys_id", "")
+            if success and req_number:
+                sn_instance = get_config().sn_instance
+                lines = [f"**Service Request Created: {req_number}**", ""]
+                if sn_instance and req_sys_id:
+                    link = f"{sn_instance.rstrip('/')}/nav_to.do?uri=sc_request.do%3Fsys_id%3D{req_sys_id}"
+                    lines.append(f"[View {req_number} in ServiceNow]({link})")
+                    lines.append("")
+                lines.append("The request has been submitted and will be routed for fulfillment.")
+                return _to_chat_markdown(lines)
+            elif not success:
+                error = data.get("error", "Unknown error")
+                return _to_chat_markdown([
+                    "**Service Request: Failed**", "",
+                    f"Could not create the request: {error}",
+                ])
+        return raw_text
+
+    if tool_name == "create_remediation_request":
+        if isinstance(data, dict):
+            success = data.get("success", False)
+            req_number = data.get("request_number", "")
+            ritm_number = data.get("ritm_number", "")
+            ritm_sys_id = data.get("ritm_sys_id", "")
+            mode = data.get("remediation_mode", "manual")
+            task_count = data.get("task_count", 0)
+            tasks = data.get("tasks", [])
+            if success and ritm_number:
+                sn_instance = get_config().sn_instance
+                mode_label = "Manual" if mode == "manual" else "Agent"
+                lines = [f"**Remediation Request Created: {req_number}**", ""]
+                lines.append(f"**RITM:** {ritm_number} | **Mode:** {mode_label} | **Status:** Pending Approval")
+                lines.append("")
+                if tasks:
+                    lines.append("| Task | CI Name | Missing Fields | Status |")
+                    lines.append("|------|---------|---------------|--------|")
+                    for t in tasks:
+                        lines.append(
+                            f"| {t.get('sctask_number', '')} "
+                            f"| {t.get('ci_name', '')} "
+                            f"| {t.get('missing_fields', '')} "
+                            f"| Open |"
+                        )
+                    lines.append("")
+                if sn_instance and ritm_sys_id:
+                    link = f"{sn_instance.rstrip('/')}/nav_to.do?uri=sc_req_item.do%3Fsys_id%3D{ritm_sys_id}"
+                    lines.append(f"[View {ritm_number} in ServiceNow]({link})")
+                    lines.append("")
+                if mode == "agent":
+                    lines.append(
+                        "Each task will be executed by the remediation agent. "
+                        "Review the changes and approve to proceed."
+                    )
+                else:
+                    lines.append(
+                        "Each task is assigned to the CI owner. They should update "
+                        "the missing fields and close their task when done."
+                    )
+                return _to_chat_markdown(lines)
+            elif not success:
+                error = data.get("error", "Unknown error")
+                return _to_chat_markdown([
+                    "**Remediation Request: Failed**", "",
+                    f"Could not create the request: {error}",
+                ])
         return raw_text
 
     if tool_name == "execute_pipeline":
@@ -1107,12 +1394,39 @@ flowchart TD
 - **Validator Agent** — verifies the submitted catalog item and workflow are correct"""
 
 
+def _build_remediation_followup_actions(raw_response: str) -> list[dict[str, str]]:
+    """Build suggested follow-up actions after a remediation request is created.
+
+    Returns mode-aware pills:
+    - manual: check task status, CMDB health, view pending tasks
+    - agent: check approval, execute remediation, CMDB health
+    """
+    try:
+        data = json.loads(raw_response)
+    except (json.JSONDecodeError, TypeError):
+        return []
+    if not isinstance(data, dict) or not data.get("success"):
+        return []
+    mode = data.get("remediation_mode", "manual")
+    if mode == "agent":
+        return [
+            {"label": "Check approval", "message": "Check the approval status of my remediation request"},
+            {"label": "Execute remediation", "message": "Execute the approved remediation"},
+            {"label": "CMDB health", "message": "Show CMDB health metrics"},
+        ]
+    return [
+        {"label": "Check task status", "message": "Check the status of my remediation tasks"},
+        {"label": "CMDB health", "message": "Show CMDB health metrics"},
+        {"label": "View pending tasks", "message": "Show pending remediation approvals"},
+    ]
+
+
 def _make_csa_handler(server_url: str) -> Any:
     """Create a dedicated dispatch handler for the CSA (Service Catalog) agent.
 
-    Handles diagram/workflow requests locally (returning Mermaid diagrams)
-    and routes other requests to the CSA agent's execute_pipeline tool,
-    formatting the JSON response into readable markdown.
+    Handles diagram/workflow requests locally (returning Mermaid diagrams),
+    routes remediation requests to create_remediation_request with stored
+    CMDB context, and routes other requests to execute_pipeline.
     """
 
     def handler(task: Task) -> dict[str, Any]:
@@ -1134,6 +1448,157 @@ def _make_csa_handler(server_url: str) -> Any:
                 "source": "csa-agent",
             }
 
+        # Remediation request — triggered by "Create fix request" pill
+        # or explicit remediation language from the user.
+        _remediation_keywords = [
+            "create a service request asking ci owners to update",
+            "create a service request to assign owners",
+            "create a service request asking ci owners to update missing",
+            "fix request",
+            "remediation request",
+            "remediate",
+        ]
+        if any(kw in message_lower for kw in _remediation_keywords):
+            session_id = task.parameters.get("session_id", "") or ""
+            cmdb_ctx = _cmdb_session_context.get(session_id, {})
+
+            # Determine remediation type from message
+            if "serial number" in message_lower or "serial" in message_lower:
+                rtype = "missing_data"
+                field_name = "serial numbers"
+            elif "owner" in message_lower:
+                rtype = "missing_data"
+                field_name = "owners"
+            elif "os" in message_lower or "operating system" in message_lower:
+                rtype = "missing_data"
+                field_name = "OS information"
+            else:
+                rtype = "missing_data"
+                field_name = "data"
+
+            ci_sys_ids = cmdb_ctx.get("ci_sys_ids", [])
+            ci_names = cmdb_ctx.get("ci_names", [])
+            ci_records = cmdb_ctx.get("ci_records", [])
+            ci_type = cmdb_ctx.get("ci_type", "server")
+            environment = cmdb_ctx.get("environment", "")
+            count = cmdb_ctx.get("count", len(ci_sys_ids))
+
+            # Determine remediation mode: manual for missing-data (humans
+            # must provide data), agent for duplicate_merge/stale_retirement
+            remediation_mode = "agent" if rtype in ("duplicate_merge", "stale_retirement") else "manual"
+
+            # Build per-CI affected_cis list from enriched CMDB context
+            affected_cis: list[dict[str, Any]] = []
+            for ci in ci_records:
+                missing_fields: list[str] = []
+                if "serial" in field_name.lower() and not ci.get("serial_number"):
+                    missing_fields.append("serial_number")
+                if "owner" in field_name.lower() and not ci.get("owned_by"):
+                    missing_fields.append("owned_by")
+                if "os" in field_name.lower() and not ci.get("os"):
+                    missing_fields.append("os")
+                # If no specific match, flag the generic field_name
+                if not missing_fields:
+                    missing_fields.append(field_name.replace(" ", "_").lower())
+
+                affected_cis.append({
+                    "sys_id": ci.get("sys_id", ""),
+                    "name": ci.get("name", ""),
+                    "ci_class": ci.get("sys_class_name", cmdb_ctx.get("ci_type", "")),
+                    "missing_fields": missing_fields,
+                    "proposed_fix": f"CI owner to update missing {', '.join(missing_fields)}",
+                })
+
+            # Fallback: if no ci_records stored, build from sys_ids/names
+            if not affected_cis and ci_sys_ids:
+                for sid, name in zip(ci_sys_ids, ci_names):
+                    affected_cis.append({
+                        "sys_id": sid,
+                        "name": name,
+                        "ci_class": ci_type,
+                        "missing_fields": [field_name.replace(" ", "_").lower()],
+                        "proposed_fix": f"CI owner to update missing {field_name}",
+                    })
+
+            ci_label = _ci_type_label(ci_type)
+            env_str = f" in {environment}" if environment else ""
+
+            issue_summary = (
+                f"{count} {ci_label}(s){env_str} found with missing {field_name}. "
+                f"Affected CIs: {', '.join(ci_names[:10])}"
+                + (f" and {len(ci_names) - 10} more" if len(ci_names) > 10 else "")
+            )
+            proposed_action = (
+                f"Update missing {field_name} on {count} {ci_label}(s){env_str}. "
+                f"CI owners should review and populate the empty fields."
+            )
+
+            arguments = {
+                "remediation_type": rtype,
+                "remediation_mode": remediation_mode,
+                "issue_summary": issue_summary,
+                "affected_cis": affected_cis,
+                "proposed_action": proposed_action,
+                "risk_level": "low",
+                "estimated_impact": f"{count} CIs will have {field_name} updated",
+            }
+
+            logger.info(
+                "CSA dispatch: calling create_remediation_request",
+                extra={"extra_data": {"task_id": task.task_id, "ci_count": count}},
+            )
+            try:
+                result = _call_mcp_tool_sync(server_url, "create_remediation_request", arguments)
+                raw_response = _extract_mcp_text(result)
+                formatted = _format_csa_response("create_remediation_request", raw_response)
+                return {
+                    "agent_response": formatted,
+                    "tool_used": "create_remediation_request",
+                    "source": "csa-agent",
+                    "suggested_actions": _build_remediation_followup_actions(raw_response),
+                }
+            except Exception as exc:
+                logger.error(
+                    "CSA remediation request failed",
+                    extra={"extra_data": {"task_id": task.task_id, "error": str(exc)}},
+                )
+                raise RuntimeError(f"CSA remediation request failed: {exc}") from exc
+
+        # Simple service request creation — uses create_service_request
+        # directly instead of the full pipeline to avoid catalog table
+        # access issues. Triggered by "create a service request" phrases.
+        _simple_req_keywords = [
+            "create a service request",
+            "create service request",
+            "open a service request",
+            "raise a service request",
+            "submit a service request",
+        ]
+        if any(kw in message_lower for kw in _simple_req_keywords):
+            logger.info(
+                "CSA dispatch: calling create_service_request",
+                extra={"extra_data": {"task_id": task.task_id}},
+            )
+            try:
+                result = _call_mcp_tool_sync(
+                    server_url,
+                    "create_service_request",
+                    {"description": message},
+                )
+                raw_response = _extract_mcp_text(result)
+                formatted = _format_csa_response("create_service_request", raw_response)
+                return {
+                    "agent_response": formatted,
+                    "tool_used": "create_service_request",
+                    "source": "csa-agent",
+                }
+            except Exception as exc:
+                logger.error(
+                    "CSA create_service_request failed",
+                    extra={"extra_data": {"task_id": task.task_id, "error": str(exc)}},
+                )
+                raise RuntimeError(f"CSA agent call failed: {exc}") from exc
+
         # All other messages go to execute_pipeline
         logger.info(
             "CSA dispatch: calling execute_pipeline",
@@ -1142,21 +1607,7 @@ def _make_csa_handler(server_url: str) -> Any:
 
         try:
             result = _call_mcp_tool_sync(server_url, "execute_pipeline", {"user_request": message})
-
-            content_items = getattr(result, "content", None)
-            if content_items is None:
-                content_items = result if isinstance(result, list) else [result]
-
-            texts = []
-            for item in content_items:
-                if hasattr(item, "text"):
-                    texts.append(item.text)
-                elif isinstance(item, dict) and "text" in item:
-                    texts.append(item["text"])
-                else:
-                    texts.append(str(item))
-
-            raw_response = "\n".join(texts)
+            raw_response = _extract_mcp_text(result)
             formatted = _format_csa_response("execute_pipeline", raw_response)
 
             return {
